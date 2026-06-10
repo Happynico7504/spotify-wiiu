@@ -2,52 +2,39 @@ name: Build
 
 on:
   push:
-    branches: ["**"]
-    tags: ["v*"]
+    branches: [main]
+    tags: ['v*']
   pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/happynico7504/spotify-wiiu-builder:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t spotify-wiiu-build -f .github/Dockerfile .
-
-      - name: Build .wuhb
-        run: |
-          docker run --rm \
-            -v "${{ github.workspace }}:/src" \
-            -w /src \
-            spotify-wiiu-build \
-            make
+      - name: Build
+        run: make
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: spotify-wiiu-${{ github.sha }}
+          name: spotify-wiiu
           path: spotify-wiiu.wuhb
-
-  release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: spotify-wiiu-${{ github.sha }}
+          if-no-files-found: error
 
       - name: Create release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: spotify-wiiu.wuhb
-          generate_release_notes: true
+          fail_on_unmatched_files: true
