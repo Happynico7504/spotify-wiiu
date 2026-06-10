@@ -6,5 +6,5 @@ RUN dkp-pacman -Syu --noconfirm \
         wiiu-sdl2_ttf \
         wiiu-curl \
         wiiu-mbedtls \
-        wiiu-libvorbisidec \
+        wiiu-tremor \
     && dkp-pacman -Sc --noconfirm
