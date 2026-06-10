@@ -66,7 +66,7 @@ Spotify Wii U authenticates using a stored-credentials blob produced by [libresp
 
 **Option A — use the prebuilt librespot binary** (easiest)
 
-Prebuilt `librespot` binaries for Windows and Linux are attached to the [`librespot-tools` release](https://github.com/nicochristmann/spotify-wii-u/releases/tag/librespot-tools) in this repo.
+Prebuilt `librespot` binaries for Windows, Linux, and macOS are attached to the [`librespot-tools` release](https://github.com/Happynico7504/spotify-wiiu/releases/tag/librespot-tools) in this repo.
 
 **Option B — install librespot yourself**
 

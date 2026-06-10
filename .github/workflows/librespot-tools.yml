@@ -1,0 +1,81 @@
+name: librespot tools
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 1 * *'   # rebuild on the 1st of each month
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: librespot-linux-x64
+            ext: ""
+          - os: windows-latest
+            artifact: librespot-windows-x64
+            ext: ".exe"
+          - os: macos-13          # x64 — Intel Mac
+            artifact: librespot-macos-x64
+            ext: ""
+          - os: macos-latest      # arm64 — Apple Silicon
+            artifact: librespot-macos-arm64
+            ext: ""
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install ALSA headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libasound2-dev pkg-config
+
+      - name: Build librespot
+        run: cargo install --root out --locked librespot
+
+      - name: Stage binary
+        shell: bash
+        run: mv "out/bin/librespot${{ matrix.ext }}" "${{ matrix.artifact }}${{ matrix.ext }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}${{ matrix.ext }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Replace librespot-tools release
+        run: |
+          gh release delete librespot-tools --yes --cleanup-tag 2>/dev/null || true
+          gh release create librespot-tools \
+            --title "librespot tools" \
+            --notes "Pre-built [librespot](https://github.com/librespot-org/librespot) binaries for use with the \`tools/make_creds.py\` credential helper.
+
+          Download the binary for your platform, then follow the [setup instructions](../../blob/main/README.md#1-get-credentials) in the README.
+
+          **Linux / macOS:** mark the binary executable before running:
+          \`\`\`sh
+          chmod +x librespot-*
+          \`\`\`
+
+          Built from the latest \`librespot\` release on [crates.io](https://crates.io/crates/librespot)." \
+            --prerelease \
+            librespot-linux-x64 \
+            librespot-windows-x64.exe \
+            librespot-macos-x64 \
+            librespot-macos-arm64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}

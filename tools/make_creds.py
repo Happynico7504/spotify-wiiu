@@ -4,8 +4,8 @@ Convert a librespot credentials.json to the binary format read by spotify-wii-u.
 
 Step 1 — get librespot
 ----------------------
-  Prebuilt binaries (Windows + Linux) are available as a release in this repo:
-    https://github.com/nicochristmann/spotify-wii-u/releases/tag/librespot-tools
+  Prebuilt binaries (Windows, Linux, macOS) are available as a release in this repo:
+    https://github.com/Happynico7504/spotify-wiiu/releases/tag/librespot-tools
 
   Alternatively, build from source:
     Windows / Linux:  cargo install librespot
