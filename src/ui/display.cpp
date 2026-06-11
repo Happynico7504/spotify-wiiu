@@ -140,12 +140,13 @@ void Display::set_waiting() {
 }
 
 void Display::set_track(const std::string &title, const std::string &artist,
-                         const std::string &album_art_url) {
+                         const std::string &album_art_url, bool is_explicit) {
     std::lock_guard<std::mutex> lk(mu_);
-    waiting_ = false;
-    title_   = title;
-    artist_  = artist;
-    art_url_ = album_art_url;
+    waiting_  = false;
+    title_    = title;
+    artist_   = artist;
+    art_url_  = album_art_url;
+    explicit_ = is_explicit;
 }
 
 void Display::set_progress(int pos_ms, int dur_ms, bool playing) {
@@ -405,7 +406,7 @@ void Display::render_playing(SDL_Renderer *r, int w, int h) {
     // Snapshot all needed display state
     std::string title, artist;
     int pos_ms, dur_ms, volume;
-    bool playing, shuffle, xtal_on;
+    bool playing, shuffle, xtal_on, is_explicit;
     int  repeat_mode, xtal_str;
     SDL_Texture *art = art_tex_;  // main-thread only; no lock needed
 
@@ -421,6 +422,7 @@ void Display::render_playing(SDL_Renderer *r, int w, int h) {
         repeat_mode = repeat_mode_;
         xtal_on  = crystal_enabled_;
         xtal_str = crystal_strength_;
+        is_explicit = explicit_;
     }
 
     float s = w / 1280.0f;  // scale factor
@@ -447,6 +449,18 @@ void Display::render_playing(SDL_Renderer *r, int w, int h) {
     update_label(lc_artist_, r, font_lg_,    artist.c_str(), Theme::TEXT_DIM, mw);
     draw_label(r, lc_title_,  tx, S(Theme::TITLE_Y));
     draw_label(r, lc_artist_, tx, S(Theme::ARTIST_Y));
+
+    if (is_explicit) {
+        // Small "E" pill badge to the right of the artist name, same baseline
+        update_label(lc_expl_, r, font_sm_, "E", Theme::TEXT);
+        int bpad = S(5);
+        int bw   = lc_expl_.w + bpad * 2;
+        int bh   = lc_expl_.h + S(2);
+        int bx   = tx + lc_artist_.w + S(10);
+        int by   = S(Theme::ARTIST_Y) + (lc_artist_.h - bh) / 2;
+        fill_rounded(r, bx, by, bw, bh, S(3), SDL_Color{77, 77, 77, 220});
+        draw_label(r, lc_expl_, bx + bpad, by + S(1));
+    }
 
     // ── Spectrum visualizer ───────────────────────────────────────────────────
     // Bar heights are computed by spec_worker (CPU0, 30 Hz); just draw here.

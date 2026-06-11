@@ -43,7 +43,7 @@ private:
     void on_seek(int position_ms);
     void on_volume(int volume_pct);
     void on_track_changed(const std::string &title, const std::string &artist,
-                          const std::string &art_url, int64_t duration_ms);
+                          const std::string &art_url, int64_t duration_ms, bool is_explicit);
 
     // Receives every AP packet not handled internally by AP (AesKey, Mercury, …)
     void on_ap_packet(uint8_t cmd, std::vector<uint8_t> payload);
@@ -70,6 +70,7 @@ private:
     int            volume_          = 100;
     bool           spirc_playing_   = false;
     int            track_dur_ms_    = 0;
+    bool           track_explicit_  = false;
     bool           crystal_enabled_ = false;
     int            crystal_strength_= 5;     // 1–10
 
