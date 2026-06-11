@@ -74,15 +74,19 @@ static FnCtor          s_fn_ctor_post  = nullptr;
 static FnCtor          s_fn_ctor_topic = nullptr;
 
 // nn::olv::UploadPostDataByPostApp — interactive post creation applet
-using FnSetWork     = void    (*)(void *, uint8_t *, uint32_t);
-using FnSetBodyText = void    (*)(void *, const uint16_t *);  // wchar_t* = uint16_t* on Wii U
-using FnSetFlags    = void    (*)(void *, uint32_t);
-using FnUploadPost  = int32_t (*)(const void *);
-static FnCtor        s_fn_ctor_upload = nullptr;
-static FnSetWork     s_fn_set_work    = nullptr;
-static FnSetBodyText s_fn_set_body    = nullptr;
-static FnSetFlags    s_fn_set_flags   = nullptr;
-static FnUploadPost  s_fn_upload_post = nullptr;
+using FnSetWork      = void    (*)(void *, uint8_t *, uint32_t);
+using FnSetBodyText  = void    (*)(void *, const uint16_t *);  // wchar_t* = uint16_t* on Wii U
+using FnSetFlags     = void    (*)(void *, uint32_t);
+using FnSetTopicTag  = void    (*)(void *, const uint16_t *);  // UTF-16 topic label
+using FnSetSearchKey = void    (*)(void *, const char *);      // ASCII search key
+using FnUploadPost   = int32_t (*)(const void *);
+static FnCtor         s_fn_ctor_upload  = nullptr;
+static FnSetWork      s_fn_set_work     = nullptr;
+static FnSetBodyText  s_fn_set_body     = nullptr;
+static FnSetFlags     s_fn_set_flags    = nullptr;
+static FnSetTopicTag  s_fn_set_topic    = nullptr;
+static FnSetSearchKey s_fn_set_search   = nullptr;
+static FnUploadPost   s_fn_upload_post  = nullptr;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -206,13 +210,29 @@ bool init() {
             "SetFlags__Q3_2nn3olv15UploadParamBaseFUi",
             reinterpret_cast<void **>(&s_fn_set_flags));
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
+        "SetTopicTag__Q3_2nn3olv15UploadParamBaseFPCw",
+        reinterpret_cast<void **>(&s_fn_set_topic));
+    if (!s_fn_set_topic)
+        OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
+            "SetTopicTag__Q3_2nn3olv28UploadPostDataByPostAppParamFPCw",
+            reinterpret_cast<void **>(&s_fn_set_topic));
+    OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
+        "SetSearchKey__Q3_2nn3olv15UploadParamBaseFPCc",
+        reinterpret_cast<void **>(&s_fn_set_search));
+    if (!s_fn_set_search)
+        OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
+            "SetSearchKey__Q3_2nn3olv28UploadPostDataByPostAppParamFPCc",
+            reinterpret_cast<void **>(&s_fn_set_search));
+    OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
         "UploadPostDataByPostApp__Q2_2nn3olvFPCQ3_2nn3olv28UploadPostDataByPostAppParam",
         reinterpret_cast<void **>(&s_fn_upload_post));
-    WHBLogPrintf("olv: post applet ctor=%s set_work=%s set_body=%s set_flags=%s upload=%s",
+    WHBLogPrintf("olv: post applet ctor=%s work=%s body=%s flags=%s topic=%s search=%s upload=%s",
                  s_fn_ctor_upload ? "ok" : "missing",
                  s_fn_set_work    ? "ok" : "missing",
                  s_fn_set_body    ? "ok" : "missing",
                  s_fn_set_flags   ? "ok" : "missing",
+                 s_fn_set_topic   ? "ok" : "missing",
+                 s_fn_set_search  ? "ok" : "missing",
                  s_fn_upload_post ? "ok" : "missing");
 
     // Initialize the network/SSL/account stack before calling nn_olv::Initialize.
@@ -426,7 +446,8 @@ std::vector<Post> fetch_posts(uint32_t community_id, uint32_t limit) {
     return out;
 }
 
-void open_post_applet(const std::string &body_utf8, bool is_explicit) {
+void open_post_applet(const std::string &body_utf8, bool is_explicit,
+                      const std::string &title, const std::string &search_key) {
     if (!s_fn_ctor_upload || !s_fn_set_work || !s_fn_set_body || !s_fn_upload_post) {
         WHBLogPrint("olv: post applet symbols not available");
         return;
@@ -445,6 +466,16 @@ void open_post_applet(const std::string &body_utf8, bool is_explicit) {
     // Convert body text to UTF-16 (Wii U wchar_t is 2 bytes; 200-char Miiverse limit).
     auto body16 = utf8_to_utf16(body_utf8, 200);
     s_fn_set_body(s_upload_param, body16.data());
+
+    // Topic tag: song title (UTF-16) — groups posts by track on Roséverse.
+    if (s_fn_set_topic) {
+        auto title16 = utf8_to_utf16(title, 64);
+        s_fn_set_topic(s_upload_param, title16.data());
+    }
+
+    // Search key: Spotify track ID — used to find all posts for a specific song.
+    if (s_fn_set_search)
+        s_fn_set_search(s_upload_param, search_key.c_str());
 
     // IS_SPOILER in the upload param flags is bit 0 (0x1), distinct from the
     // DownloadedDataBase read-side flag (0x200).

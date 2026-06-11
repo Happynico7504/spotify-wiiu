@@ -291,8 +291,9 @@ void Player::on_credentials(Discovery::Credentials creds) {
                                   const std::string &a,
                                   const std::string &u,
                                   int64_t dur,
-                                  bool expl) {
-        on_track_changed(t, a, u, dur, expl);
+                                  bool expl,
+                                  const std::string &id) {
+        on_track_changed(t, a, u, dur, expl, id);
     };
 
     spirc_->start(std::move(scb));
@@ -427,10 +428,12 @@ void Player::on_volume(int vol_pct) {
 }
 
 void Player::on_track_changed(const std::string &title, const std::string &artist,
-                               const std::string &art_url, int64_t duration_ms, bool is_explicit) {
+                               const std::string &art_url, int64_t duration_ms, bool is_explicit,
+                               const std::string &track_id) {
     track_dur_ms_   = (int)std::min(duration_ms, (int64_t)INT_MAX);
     track_title_    = title;
     track_artist_   = artist;
+    track_id_       = track_id;
     track_explicit_ = is_explicit;
     display_.set_track(title, artist, art_url, is_explicit);
 }
@@ -541,7 +544,7 @@ void Player::handle_buttons(uint32_t trigger) {
     if ((trigger & VPAD_BUTTON_STICK_L) && OLV::is_available()) {
         // ♪ Title — Artist  (UTF-8: ♪ = \xe2\x99\xaa, — = \xe2\x80\x94)
         std::string body = "\xe2\x99\xaa " + track_title_ + " \xe2\x80\x94 " + track_artist_;
-        OLV::open_post_applet(body, track_explicit_);
+        OLV::open_post_applet(body, track_explicit_, track_title_, track_id_);
     }
 }
 
@@ -667,7 +670,7 @@ void Player::handle_pro_buttons(uint32_t trigger) {
     }
     if ((trigger & WPAD_PRO_BUTTON_STICK_L) && OLV::is_available()) {
         std::string body = "\xe2\x99\xaa " + track_title_ + " \xe2\x80\x94 " + track_artist_;
-        OLV::open_post_applet(body, track_explicit_);
+        OLV::open_post_applet(body, track_explicit_, track_title_, track_id_);
     }
     if ((trigger & WPAD_PRO_BUTTON_X) && spirc_) {
         spirc_->toggle_shuffle();

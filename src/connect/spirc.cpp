@@ -2170,7 +2170,8 @@ void Spirc::fetch_track_metadata(const std::vector<uint8_t> &gid, int pos_ms) {
             put_connect_state_async(4 /* PLAYER_STATE_CHANGED */, playing_, pos_ms_, vol_pct_);
 
         if (callbacks_.on_track_changed)
-            callbacks_.on_track_changed(title, artist, art_url, duration_ms_, is_explicit);
+            callbacks_.on_track_changed(title, artist, art_url, duration_ms_, is_explicit,
+                                        gid_to_base62(gid));
 
         if (!best_file_id.empty() && callbacks_.on_file_ready)
             callbacks_.on_file_ready(best_file_id, best_file_gid, pos_ms);

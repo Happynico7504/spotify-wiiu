@@ -34,9 +34,11 @@ bool is_available();
 std::vector<Post> fetch_posts(uint32_t community_id, uint32_t limit);
 
 // Open the Miiverse post-creation applet with body_utf8 pre-filled.
-// is_explicit=true sets the IS_SPOILER flag (0x00000200) on the post.
+// title sets the topic tag; search_key (Spotify track ID) is attached for
+// per-song post lookup. is_explicit=true sets the IS_SPOILER flag.
 // Blocking — returns after the user posts or cancels.
-void open_post_applet(const std::string &body_utf8, bool is_explicit = false);
+void open_post_applet(const std::string &body_utf8, bool is_explicit,
+                      const std::string &title, const std::string &search_key);
 
 // Open the Miiverse overlay (redirected to Roséverse by Inkay-Roseverse).
 void open_overlay();

@@ -58,7 +58,8 @@ public:
                            const std::string &artist,
                            const std::string &art_url,
                            int64_t duration_ms,
-                           bool is_explicit)> on_track_changed;
+                           bool is_explicit,
+                           const std::string &track_id)> on_track_changed;
     };
 
     // ap must outlive Spirc.
