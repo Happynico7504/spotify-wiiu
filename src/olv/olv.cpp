@@ -31,14 +31,8 @@ static_assert(sizeof(InitParam) == 0x40);
 
 alignas(32) static uint8_t s_work[0x40000]; // 256 KB
 
-// ── DownloadPostDataListParam — passed to DownloadPostDataList ────────────────
-struct alignas(4) DownloadParam {
-    uint32_t flags;           // 0x000
-    uint32_t communityId;     // 0x004
-    uint8_t  _pad8[0x034];    // 0x008–0x03B
-    uint32_t postDataMaxNum;  // 0x03C
-    uint8_t  _padRest[0xFC0]; // 0x040–0xFFF
-};
+// ── DownloadPostDataListParam — opaque; all fields set via nn_olv setters ─────
+struct alignas(4) DownloadParam { uint8_t _data[0x1000]; };
 static_assert(sizeof(DownloadParam) == 0x1000);
 
 // ── DownloadedPostData / DownloadedTopicData layout ───────────────────────────
@@ -59,10 +53,13 @@ static bool             s_available = false;
 // nn::olv::DownloadPostDataList — native post fetch via system HTTP stack
 using FnDownloadPosts    = int32_t (*)(void *, void *, uint32_t *, uint32_t, const DownloadParam *);
 using FnCtor             = void    (*)(void *);
-using FnDLSetSearchKey   = int32_t (*)(void *, const uint16_t *);  // DownloadPostDataListParam::SetSearchKey (UTF-16)
+using FnDLSetUi          = int32_t (*)(void *, uint32_t);           // SetCommunityId / SetPostDataMaxNum
+using FnDLSetSearchKey   = int32_t (*)(void *, const uint16_t *, uint8_t);  // SetSearchKey (UTF-16 + index)
 static FnDownloadPosts   s_fn_download         = nullptr;
 static FnCtor            s_fn_ctor_post        = nullptr;
 static FnCtor            s_fn_ctor_topic       = nullptr;
+static FnDLSetUi         s_fn_dl_set_community = nullptr;
+static FnDLSetUi         s_fn_dl_set_max_num   = nullptr;
 static FnDLSetSearchKey  s_fn_dl_set_search    = nullptr;
 
 // nn::olv::UploadPostDataByPostApp — interactive post creation applet
@@ -169,13 +166,18 @@ bool init() {
         "__ct__Q3_2nn3olv19DownloadedTopicDataFv",
         reinterpret_cast<void **>(&s_fn_ctor_topic));
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
-        "SetSearchKey__Q3_2nn3olv25DownloadPostDataListParamFPCw",
+        "SetCommunityId__Q3_2nn3olv25DownloadPostDataListParamFUi",
+        reinterpret_cast<void **>(&s_fn_dl_set_community));
+    OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
+        "SetPostDataMaxNum__Q3_2nn3olv25DownloadPostDataListParamFUi",
+        reinterpret_cast<void **>(&s_fn_dl_set_max_num));
+    OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
+        "SetSearchKey__Q3_2nn3olv25DownloadPostDataListParamFPCwUc",
         reinterpret_cast<void **>(&s_fn_dl_set_search));
-    WHBLogPrintf("olv: native download=%s ctor_post=%s ctor_topic=%s dl_search=%s",
-                 s_fn_download      ? "ok" : "missing",
-                 s_fn_ctor_post     ? "ok" : "missing",
-                 s_fn_ctor_topic    ? "ok" : "missing",
-                 s_fn_dl_set_search ? "ok" : "missing");
+    WHBLogPrintf("olv: dl community=%s maxnum=%s search=%s",
+                 s_fn_dl_set_community ? "ok" : "missing",
+                 s_fn_dl_set_max_num   ? "ok" : "missing",
+                 s_fn_dl_set_search    ? "ok" : "missing");
 
     // Post-creation applet symbols.
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
@@ -284,11 +286,11 @@ std::vector<Post> fetch_posts(uint32_t community_id, uint32_t limit,
                 s_fn_ctor_post(posts.get() + i * k_PostDataSize);
 
             DownloadParam param = {};
-            param.communityId    = community_id;
-            param.postDataMaxNum = limit;
+            if (s_fn_dl_set_community) s_fn_dl_set_community(&param, community_id);
+            if (s_fn_dl_set_max_num)   s_fn_dl_set_max_num(&param, limit);
             if (!search_key.empty() && s_fn_dl_set_search) {
                 auto sk16 = utf8_to_utf16(search_key, 64);
-                s_fn_dl_set_search(&param, sk16.data());
+                s_fn_dl_set_search(&param, sk16.data(), 0);
             }
 
             uint32_t num_out = 0;
