@@ -197,6 +197,26 @@ void Player::run() {
             }
         }
 
+        // Auto-advance OLV card every 5 s while visible
+        if (OLV::is_available()) {
+            uint64_t now = OSGetSystemTick();
+            if (now - olv_last_advance_ >= OSSecondsToTicks(5)) {
+                std::lock_guard<std::mutex> lk(olv_mu_);
+                if (olv_card_visible_ && !olv_posts_.empty()) {
+                    olv_last_advance_ = now;
+                    olv_post_idx_ = (olv_post_idx_ + 1) % olv_posts_.size();
+                    if (olv_post_idx_ == 0 && !olv_fetch_thread_.joinable())
+                        olv_fetch_thread_ = std::thread([this] {
+                            OSSetThreadAffinity(OSGetCurrentThread(),
+                                                OS_THREAD_ATTRIB_AFFINITY_CPU0);
+                            olv_fetch(OLV::COMMUNITY_ID);
+                        });
+                    else
+                        olv_show_current();
+                }
+            }
+        }
+
         OSSleepTicks(OSMillisecondsToTicks(16));
     }
 
@@ -513,32 +533,24 @@ void Player::handle_buttons(uint32_t trigger) {
         spirc_->notify(spirc_playing_, pos, volume_);
     }
 
-    // ── OLV: StickR = fetch/cycle posts, StickL = open overlay ───────────────
+    // ── OLV: StickR = toggle post card visibility ────────────────────────────
     if ((trigger & VPAD_BUTTON_STICK_R) && OLV::is_available()) {
         std::lock_guard<std::mutex> lk(olv_mu_);
-        if (olv_posts_.empty()) {
-            // First press: kick off a fetch
-            if (!olv_fetch_thread_.joinable()) {
-                olv_fetch_thread_ = std::thread([this] {
-                    OSSetThreadAffinity(OSGetCurrentThread(),
-                                       OS_THREAD_ATTRIB_AFFINITY_CPU0);
-                    olv_fetch(OLV::COMMUNITY_ID);
-                });
-            }
-        } else {
-            // Subsequent presses: cycle to next post (wraps around)
-            olv_post_idx_ = (olv_post_idx_ + 1) % olv_posts_.size();
-            if (olv_post_idx_ == 0) {
-                // Wrapped: re-fetch in background for fresh posts
-                if (olv_fetch_thread_.joinable()) olv_fetch_thread_.join();
-                olv_fetch_thread_ = std::thread([this] {
-                    OSSetThreadAffinity(OSGetCurrentThread(),
-                                       OS_THREAD_ATTRIB_AFFINITY_CPU0);
-                    olv_fetch(OLV::COMMUNITY_ID);
-                });
+        olv_card_visible_ = !olv_card_visible_;
+        if (olv_card_visible_) {
+            if (olv_posts_.empty()) {
+                if (!olv_fetch_thread_.joinable())
+                    olv_fetch_thread_ = std::thread([this] {
+                        OSSetThreadAffinity(OSGetCurrentThread(),
+                                            OS_THREAD_ATTRIB_AFFINITY_CPU0);
+                        olv_fetch(OLV::COMMUNITY_ID);
+                    });
             } else {
+                olv_last_advance_ = OSGetSystemTick();
                 olv_show_current();
             }
+        } else {
+            display_.set_olv_post(nullptr);
         }
     }
     if ((trigger & VPAD_BUTTON_STICK_L) && OLV::is_available()) {
@@ -651,21 +663,21 @@ void Player::handle_pro_buttons(uint32_t trigger) {
         display_.toggle_controls();
     if ((trigger & WPAD_PRO_BUTTON_STICK_R) && OLV::is_available()) {
         std::lock_guard<std::mutex> lk(olv_mu_);
-        if (olv_posts_.empty()) {
-            if (!olv_fetch_thread_.joinable()) {
-                olv_fetch_thread_ = std::thread([this] {
-                    olv_fetch(OLV::COMMUNITY_ID);
-                });
+        olv_card_visible_ = !olv_card_visible_;
+        if (olv_card_visible_) {
+            if (olv_posts_.empty()) {
+                if (!olv_fetch_thread_.joinable())
+                    olv_fetch_thread_ = std::thread([this] {
+                        OSSetThreadAffinity(OSGetCurrentThread(),
+                                            OS_THREAD_ATTRIB_AFFINITY_CPU0);
+                        olv_fetch(OLV::COMMUNITY_ID);
+                    });
+            } else {
+                olv_last_advance_ = OSGetSystemTick();
+                olv_show_current();
             }
         } else {
-            olv_post_idx_ = (olv_post_idx_ + 1) % olv_posts_.size();
-            if (olv_post_idx_ == 0) {
-                if (olv_fetch_thread_.joinable()) olv_fetch_thread_.join();
-                olv_fetch_thread_ = std::thread([this] {
-                    olv_fetch(OLV::COMMUNITY_ID);
-                });
-            }
-            olv_show_current();
+            display_.set_olv_post(nullptr);
         }
     }
     if ((trigger & WPAD_PRO_BUTTON_STICK_L) && OLV::is_available()) {
@@ -712,10 +724,12 @@ void Player::olv_fetch(uint32_t cid) {
     auto posts = OLV::fetch_posts(cid, 5);
     std::lock_guard<std::mutex> lk(olv_mu_);
     if (!posts.empty()) {
-        olv_posts_   = std::move(posts);
+        olv_posts_    = std::move(posts);
         olv_post_idx_ = 0;
+        olv_last_advance_ = OSGetSystemTick();
     }
-    olv_show_current();
+    if (olv_card_visible_)
+        olv_show_current();
 }
 
 } // namespace Connect

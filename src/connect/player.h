@@ -81,7 +81,9 @@ private:
 
     // ── Roséverse OLV ────────────────────────────────────────────────────────
     std::vector<OLV::Post> olv_posts_;
-    size_t                olv_post_idx_      = 0;
+    size_t                olv_post_idx_       = 0;
+    bool                  olv_card_visible_   = false;
+    uint64_t              olv_last_advance_   = 0;   // OSGetSystemTick of last auto-advance
     std::mutex            olv_mu_;
     std::thread           olv_init_thread_;
     std::thread           olv_fetch_thread_;

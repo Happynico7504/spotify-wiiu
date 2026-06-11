@@ -376,7 +376,7 @@ void Display::render_controls(SDL_Renderer *r, int w, int h) {
         { "Y",           "Repeat"                      },
         { "Up / Down",   "Crystalizer On / Off"        },
         { "Left / Right","Crystalizer Strength"        },
-        { "Stick R",     "Miiverse posts"              },
+        { "Stick R",     "Toggle Miiverse posts"        },
         { "Stick L",     "Post to Miiverse"            },
         { "B",           "This screen"                 },
     };
