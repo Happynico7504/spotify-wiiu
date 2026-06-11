@@ -18,6 +18,7 @@ APP_NAME       := Spotify Wii U
 APP_SHORTNAME  := Spotify
 APP_AUTHOR     := WiiU Homebrew
 APP_CONTENT    := content
+APP_ICON       := meta/icon.png
 
 #-------------------------------------------------------------------------------
 # Tremor (libvorbisidec) — portlib if installed, vendor source otherwise
