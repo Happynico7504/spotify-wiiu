@@ -7,7 +7,6 @@
 #include <wut.h>
 #include <coreinit/dynload.h>
 #include <sysapp/switch.h>
-#include <curl/curl.h>
 #include <whb/log.h>
 
 
@@ -32,8 +31,7 @@ static_assert(sizeof(InitParam) == 0x40);
 
 alignas(32) static uint8_t s_work[0x40000]; // 256 KB
 
-// ── DownloadPostDataListParam — passed to GetRawDataUrl ───────────────────────
-// Only the fields GetRawDataUrl reads need to be correct; the rest is padding.
+// ── DownloadPostDataListParam — passed to DownloadPostDataList ────────────────
 struct alignas(4) DownloadParam {
     uint32_t flags;           // 0x000
     uint32_t communityId;     // 0x004
@@ -57,14 +55,6 @@ static constexpr uint32_t k_OffNickname   = 0xAAE0; // uint16[16] UTF-16
 
 static OSDynLoad_Module s_handle    = nullptr;
 static bool             s_available = false;
-
-// Service token and param pack (both null-terminated strings).
-static char s_token[513]      = {};
-static char s_param_pack[513] = {};
-
-// nn::olv::DownloadPostDataListParam::GetRawDataUrl(char *buf, uint32_t size) const
-using FnGetUrl = void (*)(const DownloadParam *, char *, uint32_t);
-static FnGetUrl s_fn_get_url = nullptr;
 
 // nn::olv::DownloadPostDataList — native post fetch via system HTTP stack
 using FnDownloadPosts    = int32_t (*)(void *, void *, uint32_t *, uint32_t, const DownloadParam *);
@@ -130,11 +120,6 @@ static std::vector<uint16_t> utf8_to_utf16(const std::string &utf8, uint32_t max
     return out;
 }
 
-static size_t curl_write_str(char *ptr, size_t sz, size_t n, void *ud) {
-    static_cast<std::string *>(ud)->append(ptr, sz * n);
-    return sz * n;
-}
-
 // ── Public API ────────────────────────────────────────────────────────────────
 
 bool init() {
@@ -157,10 +142,11 @@ bool init() {
             WHBLogPrint("olv: AIST symbol not found");
             return false;
         }
-        int32_t rc = fn_aist(s_token, "87cd32617f1985439ea608c2746e4610",
+        char token[513] = {};
+        int32_t rc = fn_aist(token, "87cd32617f1985439ea608c2746e4610",
                              3600, false, false);
         WHBLogPrintf("olv: AIST → 0x%08X", (uint32_t)rc);
-        if (rc != 0 || s_token[0] == '\0') {
+        if (rc != 0 || token[0] == '\0') {
             WHBLogPrint("olv: token acquisition failed");
             return false;
         }
@@ -172,16 +158,7 @@ bool init() {
         return false;
     }
 
-    // Resolve GetRawDataUrl (const and non-const variants).
-    if (OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
-            "GetRawDataUrl__Q3_2nn3olv25DownloadPostDataListParamCFPcUi",
-            reinterpret_cast<void **>(&s_fn_get_url)) != OS_DYNLOAD_OK) {
-        OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
-            "GetRawDataUrl__Q3_2nn3olv25DownloadPostDataListParamFPcUi",
-            reinterpret_cast<void **>(&s_fn_get_url));
-    }
-
-    // Resolve native post-download path.
+    // Resolve post-download path.
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
         "DownloadPostDataList__Q2_2nn3olvFPQ3_2nn3olv19DownloadedTopicDataPQ3_2nn3olv18DownloadedPostDataPUiUiPCQ3_2nn3olv25DownloadPostDataListParam",
         reinterpret_cast<void **>(&s_fn_download));
@@ -232,12 +209,8 @@ bool init() {
             "SetSearchKey__Q3_2nn3olv28UploadPostDataByPostAppParamFPCw",
             reinterpret_cast<void **>(&s_fn_set_search));
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
-        "SetCommunityId__Q3_2nn3olv15UploadParamBaseFUi",
+        "SetCommunityId__Q3_2nn3olv19UploadPostDataParamFUi",
         reinterpret_cast<void **>(&s_fn_set_community));
-    if (!s_fn_set_community)
-        OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
-            "SetCommunityId__Q3_2nn3olv28UploadPostDataByPostAppParamFUi",
-            reinterpret_cast<void **>(&s_fn_set_community));
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
         "UploadPostDataByPostApp__Q2_2nn3olvFPCQ3_2nn3olv28UploadPostDataByPostAppParam",
         reinterpret_cast<void **>(&s_fn_upload_post));
@@ -265,21 +238,11 @@ bool init() {
 
     // Attempt Initialize with 256 KB work buffer (minimum per reference tool).
     {
-        using FnInit   = int32_t (*)(const InitParam *);
-        using FnGetST  = int32_t (*)(char *, uint32_t);
-        using FnGetPP  = int32_t (*)(char *, uint32_t);
-        FnInit  fn_init   = nullptr;
-        FnGetST fn_get_st = nullptr;
-        FnGetPP fn_get_pp = nullptr;
+        using FnInit = int32_t (*)(const InitParam *);
+        FnInit fn_init = nullptr;
         OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
             "Initialize__Q2_2nn3olvFPCQ3_2nn3olv15InitializeParam",
             reinterpret_cast<void **>(&fn_init));
-        OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
-            "GetServiceToken__Q2_2nn3olvFPcUi",
-            reinterpret_cast<void **>(&fn_get_st));
-        OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
-            "GetParamPack__Q2_2nn3olvFPcUi",
-            reinterpret_cast<void **>(&fn_get_pp));
 
         if (fn_init) {
             memset(s_work, 0, sizeof(s_work));
@@ -288,30 +251,21 @@ bool init() {
             param.workSize = sizeof(s_work);
             int32_t r = fn_init(&param);
             WHBLogPrintf("olv: Initialize → 0x%08X", (uint32_t)r);
-            // 0x01100080 is Roséverse's success code — Inkay intercepts the
-            // discovery endpoint and returns this instead of Nintendo's 0x00000000.
-            // Standard Nintendo builds return 0; accept both.
+            // 0x01100080 is Roséverse's success code.
             if (r == 0 || (uint32_t)r == 0x01100080u) {
-                if (fn_get_st) fn_get_st(s_token,      sizeof(s_token) - 1);
-                if (fn_get_pp) fn_get_pp(s_param_pack, sizeof(s_param_pack) - 1);
-                WHBLogPrintf("olv: token_len=%zu pp_len=%zu",
-                             strlen(s_token), strlen(s_param_pack));
-                WHBLogPrint("olv: ready (full nn_olv mode)");
+                WHBLogPrint("olv: ready");
                 s_available = true;
                 return true;
             }
         }
     }
 
-    // Fall through: use direct HTTP with the AIST token we already have.
-    WHBLogPrint("olv: ready (direct HTTP mode)");
-    s_available = true;
-    return true;
+    WHBLogPrint("olv: Initialize failed");
+    return false;
 }
 
 void shutdown() {
     s_available = false;
-    memset(s_token, 0, sizeof(s_token));
     if (s_handle) { OSDynLoad_Release(s_handle); s_handle = nullptr; }
     nn::act::Finalize();
     NSSLFinish();
@@ -360,114 +314,13 @@ std::vector<Post> fetch_posts(uint32_t community_id, uint32_t limit,
                         static_cast<int>(static_cast<int8_t>(p[k_OffFeeling]))));
                     out.push_back(std::move(post));
                 }
-                WHBLogPrintf("olv: native fetch ok, %zu posts", out.size());
+                WHBLogPrintf("olv: fetch ok, %zu posts", out.size());
                 return out;
             }
         }
     }
 
-    // ── libcurl fallback ──────────────────────────────────────────────────────
-    if (s_token[0] == '\0') return {};
-
-    // Build the API URL via nn_olv's own URL builder so it includes the search key.
-    std::string url;
-    if (s_fn_get_url) {
-        DownloadParam param = {};
-        param.communityId    = community_id;
-        param.postDataMaxNum = limit;
-        if (!search_key.empty() && s_fn_dl_set_search) {
-            auto sk16 = utf8_to_utf16(search_key, 64);
-            s_fn_dl_set_search(&param, sk16.data());
-        }
-        char buf[512] = {};
-        s_fn_get_url(&param, buf, sizeof(buf));
-        if (buf[0]) {
-            if (strncmp(buf, "https://", 8) == 0 || strncmp(buf, "http://", 7) == 0)
-                url = buf;
-            else {
-                url = "https://api-l1.olv.projectrose.cafe";
-                url += buf;
-            }
-        }
-        WHBLogPrintf("olv: URL → %s", url.empty() ? "(empty)" : url.c_str());
-    }
-    if (url.empty()) {
-        url = std::string("https://api-l1.olv.projectrose.cafe/v1/communities/")
-              + std::to_string(community_id) + "/posts";
-        WHBLogPrintf("olv: fallback URL → %s", url.c_str());
-    }
-
-    // HTTP GET with the Miiverse service token.
-    CURL *c = curl_easy_init();
-    if (!c) return {};
-
-    std::string body;
-    curl_slist *headers = nullptr;
-    headers = curl_slist_append(headers,
-        (std::string("X-Nintendo-ServiceToken: ") + s_token).c_str());
-    if (s_param_pack[0])
-        headers = curl_slist_append(headers,
-            (std::string("X-Nintendo-ParamPack: ") + s_param_pack).c_str());
-    headers = curl_slist_append(headers,
-        "User-Agent: Mozilla/5.0 (Nintendo WiiU) AppleWebKit/536.28 "
-        "(KHTML, like Gecko) NX/3.0.3.12.6 miiverse/3.1.prod.US");
-
-    curl_easy_setopt(c, CURLOPT_URL,            url.c_str());
-    curl_easy_setopt(c, CURLOPT_HTTPHEADER,     headers);
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION,  curl_write_str);
-    curl_easy_setopt(c, CURLOPT_WRITEDATA,      &body);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT,        10L);
-    curl_easy_setopt(c, CURLOPT_HTTP_VERSION,   CURL_HTTP_VERSION_1_1);
-    curl_easy_setopt(c, CURLOPT_SSL_VERIFYPEER, 0L);
-    curl_easy_setopt(c, CURLOPT_SSL_VERIFYHOST, 0L);
-
-    CURLcode crc = curl_easy_perform(c);
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(c);
-
-    if (crc != CURLE_OK) {
-        WHBLogPrintf("olv: curl error %d", (int)crc);
-        return {};
-    }
-    WHBLogPrintf("olv: response %zu B", body.size());
-
-    // Parse the Miiverse XML response.
-    // Structure: <result><post><body>…</body><screen_name>…</screen_name>
-    //            <feeling_id>…</feeling_id></post>…</result>
-    auto xml_field = [](const std::string &blk, const char *tag) -> std::string {
-        std::string open  = std::string("<") + tag + ">";
-        std::string close = std::string("</") + tag + ">";
-        size_t s = blk.find(open);
-        if (s == std::string::npos) return {};
-        s += open.size();
-        size_t e = blk.find(close, s);
-        return e == std::string::npos ? std::string{} : blk.substr(s, e - s);
-    };
-
-    std::vector<Post> out;
-    size_t pos = 0;
-    while (out.size() < limit) {
-        size_t ps = body.find("<post", pos);
-        if (ps == std::string::npos) break;
-        size_t tag_end = body.find('>', ps);
-        if (tag_end == std::string::npos) break;
-        size_t pe = body.find("</post>", tag_end);
-        if (pe == std::string::npos) break;
-        std::string blk = body.substr(tag_end + 1, pe - tag_end - 1);
-        pos = pe + 7;
-
-        std::string txt = xml_field(blk, "body");
-        if (txt.empty()) continue;
-        Post p;
-        p.body        = txt;
-        p.screen_name = xml_field(blk, "screen_name");
-        std::string fstr = xml_field(blk, "feeling_id");
-        p.feeling = fstr.empty() ? 0 : std::max(0, std::min(5, std::stoi(fstr)));
-        out.push_back(std::move(p));
-    }
-
-    WHBLogPrintf("olv: parsed %zu posts", out.size());
-    return out;
+    return {};
 }
 
 void open_post_applet(const std::string &body_utf8, bool is_explicit,
