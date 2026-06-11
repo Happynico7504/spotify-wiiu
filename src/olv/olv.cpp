@@ -70,7 +70,7 @@ using FnSetWork        = void    (*)(void *, uint8_t *, uint32_t);
 using FnSetBodyText    = void    (*)(void *, const uint16_t *);  // wchar_t* = uint16_t* on Wii U
 using FnSetFlags       = void    (*)(void *, uint32_t);
 using FnSetTopicTag    = void    (*)(void *, const uint16_t *);  // UTF-16 topic label
-using FnSetSearchKey   = void    (*)(void *, const uint16_t *);  // UTF-16 search key
+using FnSetSearchKey   = void    (*)(void *, const uint16_t *, uint8_t);  // UTF-16 search key + index
 using FnSetCommunityId = void    (*)(void *, uint32_t);
 using FnUploadPost     = int32_t (*)(const void *);
 static FnCtor          s_fn_ctor_upload    = nullptr;
@@ -202,12 +202,8 @@ bool init() {
             "SetTopicTag__Q3_2nn3olv28UploadPostDataByPostAppParamFPCw",
             reinterpret_cast<void **>(&s_fn_set_topic));
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
-        "SetSearchKey__Q3_2nn3olv15UploadParamBaseFPCw",
+        "SetSearchKey__Q3_2nn3olv19UploadPostDataParamFPCwUc",
         reinterpret_cast<void **>(&s_fn_set_search));
-    if (!s_fn_set_search)
-        OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
-            "SetSearchKey__Q3_2nn3olv28UploadPostDataByPostAppParamFPCw",
-            reinterpret_cast<void **>(&s_fn_set_search));
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
         "SetCommunityId__Q3_2nn3olv19UploadPostDataParamFUi",
         reinterpret_cast<void **>(&s_fn_set_community));
@@ -355,7 +351,7 @@ void open_post_applet(const std::string &body_utf8, bool is_explicit,
     // Search key: Spotify track ID — used to find all posts for a specific song.
     if (s_fn_set_search && !search_key.empty()) {
         auto sk16 = utf8_to_utf16(search_key, 64);
-        s_fn_set_search(s_upload_param, sk16.data());
+        s_fn_set_search(s_upload_param, sk16.data(), 0);
     }
 
     // IS_SPOILER in the upload param flags is bit 0 (0x1), distinct from the
