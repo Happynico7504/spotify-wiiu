@@ -22,14 +22,14 @@ struct alignas(4) InitParam {
     uint32_t flags;       // 0x00
     uint32_t reportTypes; // 0x04
     void    *work;        // 0x08
-    uint32_t workSize;    // 0x0C  must be >= 0x40000 (256 KB)
+    uint32_t workSize;    // 0x0C
     void    *sysArgs;     // 0x10
     uint32_t sysArgsSize; // 0x14
     uint8_t  _pad[0x28];
 };
 static_assert(sizeof(InitParam) == 0x40);
 
-alignas(32) static uint8_t s_work[0x40000]; // 256 KB
+alignas(32) static uint8_t s_work[0x200000]; // 2 MB — download responses can be large
 
 // ── DownloadPostDataListParam — opaque; all fields set via nn_olv setters ─────
 struct alignas(4) DownloadParam { uint8_t _data[0x1000]; };
