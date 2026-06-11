@@ -57,7 +57,8 @@ public:
         std::function<void(const std::string &title,
                            const std::string &artist,
                            const std::string &art_url,
-                           int64_t duration_ms)> on_track_changed;
+                           int64_t duration_ms,
+                           bool is_explicit)> on_track_changed;
     };
 
     // ap must outlive Spirc.

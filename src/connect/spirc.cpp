@@ -2041,6 +2041,7 @@ void Spirc::fetch_track_metadata(const std::vector<uint8_t> &gid, int pos_ms) {
         std::vector<uint8_t> best_file_gid = gid; // GID that owns best_file_id
         int best_fmt = -1; // prefer OGG_VORBIS_160=1, then 320=2, then 96=0
         int64_t duration_ms = 0;
+        bool is_explicit = false;
 
         uint32_t f; uint8_t w;
         while (rd.next(f, w)) {
@@ -2101,6 +2102,11 @@ void Spirc::fetch_track_metadata(const std::vector<uint8_t> &gid, int pos_ms) {
                     int prio = (fmt == 1) ? 3 : (fmt == 2) ? 2 : (fmt == 0) ? 1 : 0;
                     if (prio > best_fmt) { best_fmt = prio; best_file_id = fid; }
                 }
+                break;
+            }
+            case 14: {                          // Track.tags (repeated string, e.g. "explicit")
+                std::string tag; rd.read_str(tag);
+                if (tag == "explicit") is_explicit = true;
                 break;
             }
             case 13: {                          // Track.alternative (repeated Track)
@@ -2164,7 +2170,7 @@ void Spirc::fetch_track_metadata(const std::vector<uint8_t> &gid, int pos_ms) {
             put_connect_state_async(4 /* PLAYER_STATE_CHANGED */, playing_, pos_ms_, vol_pct_);
 
         if (callbacks_.on_track_changed)
-            callbacks_.on_track_changed(title, artist, art_url, duration_ms_);
+            callbacks_.on_track_changed(title, artist, art_url, duration_ms_, is_explicit);
 
         if (!best_file_id.empty() && callbacks_.on_file_ready)
             callbacks_.on_file_ready(best_file_id, best_file_gid, pos_ms);

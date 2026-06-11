@@ -278,8 +278,9 @@ void Player::on_credentials(Discovery::Credentials creds) {
     scb.on_track_changed = [this](const std::string &t,
                                   const std::string &a,
                                   const std::string &u,
-                                  int64_t dur) {
-        on_track_changed(t, a, u, dur);
+                                  int64_t dur,
+                                  bool expl) {
+        on_track_changed(t, a, u, dur, expl);
     };
 
     spirc_->start(std::move(scb));
@@ -414,9 +415,10 @@ void Player::on_volume(int vol_pct) {
 }
 
 void Player::on_track_changed(const std::string &title, const std::string &artist,
-                               const std::string &art_url, int64_t duration_ms) {
-    track_dur_ms_ = (int)std::min(duration_ms, (int64_t)INT_MAX);
-    display_.set_track(title, artist, art_url);
+                               const std::string &art_url, int64_t duration_ms, bool is_explicit) {
+    track_dur_ms_   = (int)std::min(duration_ms, (int64_t)INT_MAX);
+    track_explicit_ = is_explicit;
+    display_.set_track(title, artist, art_url, is_explicit);
 }
 
 // ── GamePad buttons ───────────────────────────────────────────────────────────

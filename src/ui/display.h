@@ -31,7 +31,7 @@ public:
     // ── state setters (thread-safe) ──────────────────────────────────────────
     void set_waiting();   // "Waiting for Spotify…" before any session
     void set_track(const std::string &title, const std::string &artist,
-                   const std::string &album_art_url);
+                   const std::string &album_art_url, bool is_explicit = false);
     void set_progress(int position_ms, int duration_ms, bool playing);
     void set_volume(int pct);              // 0–100
     void set_shuffle(bool on);
@@ -98,6 +98,7 @@ private:
     // ── text label caches (main-thread only) ─────────────────────────────────
     // Textures are recreated only when the displayed string or color changes.
     CachedLabel lc_title_, lc_artist_;        // track info
+    CachedLabel lc_expl_;                    // "E" explicit badge text
     CachedLabel lc_pos_,   lc_dur_;           // M:SS timestamps
     CachedLabel lc_vol_;                      // "Vol N%"
     CachedLabel lc_shuf_,  lc_rep_, lc_xtal_; // SHUF / REP / XTAL (color encodes on/off)
@@ -110,6 +111,7 @@ private:
     std::string title_;
     std::string artist_;
     std::string art_url_;
+    bool        explicit_   = false;
     int         pos_ms_     = 0;
     int         dur_ms_     = 0;
     bool        playing_    = false;
