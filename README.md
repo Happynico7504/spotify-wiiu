@@ -183,11 +183,17 @@ src/
   discovery/  # Zeroconf / mDNS (makes the device visible to Spotify apps)
   ui/         # SDL2 display, spectrum visualiser, font baking
   spotify/    # Shared utilities (HTTP mutex)
+  olv/        # Roséverse / Miiverse (nn_olv) integration
 vendor/       # cJSON, stb_image
-tools/        # Credential helper scripts and AP debug tools
-meta/         # Wii U app metadata (meta.xml)
+tools/
+  setup/      # Native setup tool (Rust) — guides users through credential setup
+  setup.py    # Python equivalent for power users
+  make_creds.py  # Convert librespot credentials.json → spotify_saved_creds.bin
+meta/         # Wii U app metadata (meta.xml, icon.png)
 content/      # Bundled assets (font)
-.github/      # Dockerfile and CI workflow
+.github/
+  Dockerfile  # Pre-baked builder image (devkitPPC + WUT + Rust/musl)
+  workflows/  # CI: wuhb build, setup tool, platform bundles, Docker image
 ```
 
 ## License
