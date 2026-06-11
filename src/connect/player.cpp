@@ -556,7 +556,7 @@ void Player::handle_buttons(uint32_t trigger) {
     if ((trigger & VPAD_BUTTON_STICK_L) && OLV::is_available()) {
         // ♪ Title — Artist  (UTF-8: ♪ = \xe2\x99\xaa, — = \xe2\x80\x94)
         std::string body = "\xe2\x99\xaa " + track_title_ + " \xe2\x80\x94 " + track_artist_;
-        OLV::open_post_applet(body, track_explicit_, track_title_, track_id_);
+        OLV::open_post_applet(body, track_explicit_, track_title_ + " - " + track_artist_, track_id_);
     }
 }
 
@@ -682,7 +682,7 @@ void Player::handle_pro_buttons(uint32_t trigger) {
     }
     if ((trigger & WPAD_PRO_BUTTON_STICK_L) && OLV::is_available()) {
         std::string body = "\xe2\x99\xaa " + track_title_ + " \xe2\x80\x94 " + track_artist_;
-        OLV::open_post_applet(body, track_explicit_, track_title_, track_id_);
+        OLV::open_post_applet(body, track_explicit_, track_title_ + " - " + track_artist_, track_id_);
     }
     if ((trigger & WPAD_PRO_BUTTON_X) && spirc_) {
         spirc_->toggle_shuffle();
