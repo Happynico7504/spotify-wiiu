@@ -201,6 +201,10 @@ bool init() {
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
         "SetFlags__Q3_2nn3olv28UploadPostDataByPostAppParamFUi",
         reinterpret_cast<void **>(&s_fn_set_flags));
+    if (!s_fn_set_flags)
+        OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
+            "SetFlags__Q3_2nn3olv15UploadParamBaseFUi",
+            reinterpret_cast<void **>(&s_fn_set_flags));
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
         "UploadPostDataByPostApp__Q2_2nn3olvFPCQ3_2nn3olv28UploadPostDataByPostAppParam",
         reinterpret_cast<void **>(&s_fn_upload_post));
@@ -442,8 +446,10 @@ void open_post_applet(const std::string &body_utf8, bool is_explicit) {
     auto body16 = utf8_to_utf16(body_utf8, 200);
     s_fn_set_body(s_upload_param, body16.data());
 
+    // IS_SPOILER in the upload param flags is bit 0 (0x1), distinct from the
+    // DownloadedDataBase read-side flag (0x200).
     if (is_explicit && s_fn_set_flags)
-        s_fn_set_flags(s_upload_param, 0x00000200u);  // IS_SPOILER
+        s_fn_set_flags(s_upload_param, 0x00000001u);
 
     int32_t rc = s_fn_upload_post(s_upload_param);
     WHBLogPrintf("olv: UploadPostDataByPostApp → 0x%08X", (uint32_t)rc);
