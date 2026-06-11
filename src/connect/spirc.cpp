@@ -2104,9 +2104,9 @@ void Spirc::fetch_track_metadata(const std::vector<uint8_t> &gid, int pos_ms) {
                 }
                 break;
             }
-            case 14: {                          // Track.tags (repeated string, e.g. "explicit")
-                std::string tag; rd.read_str(tag);
-                if (tag == "explicit") is_explicit = true;
+            case 9: {                           // Track.explicit (bool varint)
+                uint64_t v; rd.vi(v);
+                if (v) is_explicit = true;
                 break;
             }
             case 13: {                          // Track.alternative (repeated Track)
@@ -2145,8 +2145,8 @@ void Spirc::fetch_track_metadata(const std::vector<uint8_t> &gid, int pos_ms) {
             }
         }
 
-        WHBLogPrintf("spirc: metadata '%s' / '%s' fmt=%d dur=%lldms",
-                     title.c_str(), artist.c_str(), best_fmt, (long long)duration_ms);
+        WHBLogPrintf("spirc: metadata '%s' / '%s' fmt=%d dur=%lldms explicit=%d",
+                     title.c_str(), artist.c_str(), best_fmt, (long long)duration_ms, (int)is_explicit);
         if (duration_ms > 0) duration_ms_ = duration_ms;
 
         // Ensure the URI slot for the current track is populated.
