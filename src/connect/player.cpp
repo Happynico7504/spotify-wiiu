@@ -456,6 +456,11 @@ void Player::on_track_changed(const std::string &title, const std::string &artis
     track_id_       = track_id;
     track_explicit_ = is_explicit;
     display_.set_track(title, artist, art_url, is_explicit);
+    {
+        std::lock_guard<std::mutex> lk(olv_mu_);
+        olv_posts_.clear();
+        olv_post_idx_ = 0;
+    }
 }
 
 // ── GamePad buttons ───────────────────────────────────────────────────────────
