@@ -1,0 +1,121 @@
+name: platform bundles
+
+on:
+  push:
+    tags:
+      - 'bundle-v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # librespot always built for the host target (native runner per platform).
+          # The setup tool uses musl on Linux for a fully static binary.
+          - os: ubuntu-latest
+            setup_target: x86_64-unknown-linux-musl
+            archive: spotify-wiiu-setup-linux-x64.tar.gz
+            ext: ""
+
+          - os: windows-latest
+            setup_target: x86_64-pc-windows-msvc
+            archive: spotify-wiiu-setup-windows-x64.zip
+            ext: ".exe"
+
+          - os: macos-latest
+            setup_target: aarch64-apple-darwin
+            archive: spotify-wiiu-setup-macos-arm64.tar.gz
+            ext: ""
+
+          - os: macos-13
+            setup_target: x86_64-apple-darwin
+            archive: spotify-wiiu-setup-macos-x64.tar.gz
+            ext: ""
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.setup_target }}
+
+      - name: Install ALSA + musl tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libasound2-dev pkg-config musl-tools
+
+      - name: Build librespot (host target)
+        run: cargo install --root librespot-out --locked librespot
+
+      - name: Build setup tool
+        run: cargo build --release --target ${{ matrix.setup_target }}
+        working-directory: tools/setup
+
+      - name: Package (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir bundle
+          cp librespot-out/bin/librespot bundle/librespot
+          cp tools/setup/target/${{ matrix.setup_target }}/release/spotify-wiiu-setup bundle/spotify-wiiu-setup
+          chmod +x bundle/librespot bundle/spotify-wiiu-setup
+          tar -czf "${{ matrix.archive }}" -C bundle librespot spotify-wiiu-setup
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory bundle | Out-Null
+          Copy-Item librespot-out\bin\librespot.exe bundle\librespot.exe
+          Copy-Item tools\setup\target\${{ matrix.setup_target }}\release\spotify-wiiu-setup.exe bundle\spotify-wiiu-setup.exe
+          Compress-Archive -Path bundle\* -DestinationPath "${{ matrix.archive }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.os }}-${{ matrix.setup_target }}
+          path: ${{ matrix.archive }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create release
+        run: |
+          TAG="${GITHUB_REF_NAME:-bundle-latest}"
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" \
+            --title "Spotify Wii U — Platform Bundles ($TAG)" \
+            --notes "All-in-one credential setup bundles for Spotify Wii U.
+
+          Each archive contains two executables:
+          - **\`spotify-wiiu-setup\`** — guided setup tool
+          - **\`librespot\`** — used to authenticate with Spotify
+
+          ## Usage
+
+          1. Download the archive for your platform (below)
+          2. Extract it
+          3. **Linux / macOS only:** make both files executable:
+             \`\`\`sh
+             chmod +x librespot spotify-wiiu-setup
+             \`\`\`
+          4. Run \`spotify-wiiu-setup\` (or \`spotify-wiiu-setup.exe\` on Windows)
+          5. Follow the on-screen prompts — the tool handles the rest
+
+          See the [README](../../blob/main/README.md#1-get-credentials) for full details." \
+            spotify-wiiu-setup-linux-x64.tar.gz \
+            spotify-wiiu-setup-windows-x64.zip \
+            spotify-wiiu-setup-macos-arm64.tar.gz \
+            spotify-wiiu-setup-macos-x64.tar.gz
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}

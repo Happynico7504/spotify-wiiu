@@ -1,0 +1,13 @@
+[package]
+name = "spotify-wiiu-setup"
+version = "0.1.0"
+edition = "2021"
+description = "One-shot credential setup tool for Spotify Wii U"
+
+[dependencies]
+base64  = "0.22"
+serde_json = "1"
+
+[[bin]]
+name = "spotify-wiiu-setup"
+path = "src/main.rs"

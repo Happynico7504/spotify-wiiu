@@ -1,0 +1,101 @@
+name: setup tool
+
+on:
+  push:
+    tags:
+      - 'setup-v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact: spotify-wiiu-setup-linux-x64
+            ext: ""
+
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: spotify-wiiu-setup-windows-x64
+            ext: ".exe"
+
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: spotify-wiiu-setup-macos-arm64
+            ext: ""
+
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: spotify-wiiu-setup-macos-x64
+            ext: ""
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get install -y musl-tools
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+        working-directory: tools/setup
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mv "tools/setup/target/${{ matrix.target }}/release/spotify-wiiu-setup${{ matrix.ext }}" \
+             "${{ matrix.artifact }}${{ matrix.ext }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}${{ matrix.ext }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create release
+        run: |
+          TAG="${GITHUB_REF_NAME:-setup-latest}"
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" \
+            --title "Spotify Wii U Setup Tool ($TAG)" \
+            --notes "One-click credential setup for Spotify Wii U.
+
+          ## Usage
+
+          1. Download the binary for your platform (below)
+          2. Place it in the same folder as your \`librespot\` binary, **or** make sure \`librespot\` is on your PATH
+             (get \`librespot\` from the [librespot-tools release](../../releases/tag/librespot-tools))
+          3. Run it — it will walk you through authentication and write \`spotify_saved_creds.bin\` automatically
+
+          **Linux / macOS:** mark the binary executable first:
+          \`\`\`sh
+          chmod +x spotify-wiiu-setup-*
+          \`\`\`
+
+          See the [README](../../blob/main/README.md#1-get-credentials) for the full setup guide." \
+            spotify-wiiu-setup-linux-x64 \
+            spotify-wiiu-setup-windows-x64.exe \
+            spotify-wiiu-setup-macos-arm64 \
+            spotify-wiiu-setup-macos-x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}

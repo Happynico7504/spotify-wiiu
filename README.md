@@ -62,13 +62,42 @@ An unofficial [Spotify Connect](https://www.spotify.com/connect/) client for the
 
 ### 1. Get credentials
 
+#### Easy — one download (recommended)
+
+Grab the bundle for your platform from the [latest bundle release](../../releases/latest):
+
+| Platform | File |
+|----------|------|
+| Windows | `spotify-wiiu-setup-windows-x64.zip` |
+| Linux | `spotify-wiiu-setup-linux-x64.tar.gz` |
+| macOS (Apple Silicon) | `spotify-wiiu-setup-macos-arm64.tar.gz` |
+| macOS (Intel) | `spotify-wiiu-setup-macos-x64.tar.gz` |
+
+Extract the archive, then run the setup tool:
+
+```sh
+# Linux / macOS — mark both files executable first
+chmod +x librespot spotify-wiiu-setup
+./spotify-wiiu-setup
+```
+
+```
+# Windows
+spotify-wiiu-setup.exe
+```
+
+The tool launches librespot, waits for you to select **"wii-u-setup"** in any Spotify app, converts the credentials, and offers to copy them to your SD card — all in one step.
+
+#### Manual — power users
+
+<details>
+<summary>Expand manual steps</summary>
+
 Spotify Wii U authenticates using a stored-credentials blob produced by [librespot](https://github.com/librespot-org/librespot).
 
-**Option A — use the prebuilt librespot binary** (easiest)
+**Get librespot**
 
-Prebuilt `librespot` binaries for Windows, Linux, and macOS are attached to the [`librespot-tools` release](https://github.com/Happynico7504/spotify-wiiu/releases/tag/librespot-tools) in this repo.
-
-**Option B — install librespot yourself**
+Prebuilt binaries are in the [`librespot-tools` release](../../releases/tag/librespot-tools), or install it yourself:
 
 ```sh
 # Linux (Arch)
@@ -106,6 +135,8 @@ python3 tools/make_creds.py /tmp/librespot-cache/credentials.json
 
 This writes `spotify_saved_creds.bin` in the current directory.
 
+</details>
+
 ### 2. Copy to SD card
 
 Copy `spotify_saved_creds.bin` to the **root** of your Wii U SD card:
@@ -113,6 +144,8 @@ Copy `spotify_saved_creds.bin` to the **root** of your Wii U SD card:
 ```
 SD:/spotify_saved_creds.bin
 ```
+
+> The setup tool can do this step automatically if your SD card is mounted.
 
 ### 3. Launch
 
