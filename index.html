@@ -95,9 +95,19 @@
           <p>GamePad, Wii Remote, and Pro Controller all supported out of the box.</p>
         </div>
         <div class="card">
+          <div class="card-icon">👆</div>
+          <h3>Touchscreen</h3>
+          <p>Tap album art to play/pause, swipe left or right to skip, drag the progress bar to seek.</p>
+        </div>
+        <div class="card">
           <div class="card-icon">🌸</div>
           <h3>Roséverse Integration</h3>
           <p>Browse Miiverse-style posts for the current track via Roséverse (nn_olv).</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🧹</div>
+          <h3>Cache-Sweep Plugin</h3>
+          <p>Optional Aroma plugin that cleans up stale audio cache at boot and on a configurable interval — keeps your SD card tidy automatically.</p>
         </div>
       </div>
     </div>
@@ -138,19 +148,28 @@ chmod +x librespot spotify-wiiu-setup
 
 <span class="cmt"># Windows</span>
 spotify-wiiu-setup.exe</code></pre>
-              <p>The tool launches librespot, waits for you to select <strong>"wii-u-setup"</strong> in any Spotify app, converts the credentials, and offers to copy them to your SD card.</p>
+              <p>The tool authenticates with Spotify, converts credentials, copies them to your SD card, and downloads and installs the latest <code>spotify-wiiu.wuhb</code> and <code>spotify-cache-sweep.wps</code> — all in one step.</p>
             </div>
           </div>
           <div class="step">
             <div class="step-num">3</div>
             <div class="step-body">
               <h3>Copy to SD card</h3>
-              <p>The setup tool can do this automatically. If you skipped it, copy manually:</p>
+              <p>The setup tool handles this automatically. If you skipped it, copy manually:</p>
               <pre><code>SD:/spotify_saved_creds.bin</code></pre>
             </div>
           </div>
           <div class="step">
             <div class="step-num">4</div>
+            <div class="step-body">
+              <h3>Install the cache-sweep plugin <span style="font-weight:400;font-size:0.85em">(optional)</span></h3>
+              <p>The setup tool installs this automatically. To install manually, copy <code>spotify-cache-sweep.wps</code> to:</p>
+              <pre><code>SD:/wiiu/environments/&lt;aroma-env&gt;/modules/plugins/</code></pre>
+              <p>Once installed, configure the sweep interval from the <strong>Aroma Config Menu</strong> (<kbd>L</kbd> + <kbd>↓</kbd> + <kbd>SELECT</kbd>).</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">5</div>
             <div class="step-body">
               <h3>Launch</h3>
               <p>Insert the SD card, power on the Wii U, open the <strong>Aroma Homebrew Launcher</strong>, and select <strong>Spotify Wii U</strong>. Then select <strong>"Wii U"</strong> from any Spotify app's device list.</p>
@@ -218,7 +237,7 @@ python3 tools/make_creds.py /tmp/librespot-cache/credentials.json</code></pre>
       <h2>Controls</h2>
       <div class="ctrl-grid">
         <div>
-          <h3>GamePad &amp; Pro Controller</h3>
+          <h3>GamePad</h3>
           <table class="ctrl-table">
             <tr><td><kbd>+</kbd> / <kbd>−</kbd></td><td>Volume +5 / −5</td></tr>
             <tr><td><kbd>R</kbd> / <kbd>L</kbd></td><td>Next / Previous track</td></tr>
@@ -232,9 +251,29 @@ python3 tools/make_creds.py /tmp/librespot-cache/credentials.json</code></pre>
             <tr><td><kbd>Stick R</kbd></td><td>Open post in Roséverse</td></tr>
             <tr><td><kbd>Stick L</kbd></td><td>Post to Roséverse</td></tr>
           </table>
+          <h3 style="margin-top:1.2rem">GamePad Touchscreen</h3>
+          <table class="ctrl-table">
+            <tr><td>Tap album art</td><td>Play / Pause</td></tr>
+            <tr><td>Swipe left / right</td><td>Next / Previous track</td></tr>
+            <tr><td>Drag progress bar</td><td>Seek</td></tr>
+          </table>
         </div>
         <div>
-          <h3>Wii Remote</h3>
+          <h3>Pro Controller</h3>
+          <table class="ctrl-table">
+            <tr><td><kbd>+</kbd> / <kbd>−</kbd></td><td>Volume +5 / −5</td></tr>
+            <tr><td><kbd>R</kbd> / <kbd>L</kbd></td><td>Next / Previous track</td></tr>
+            <tr><td><kbd>ZR</kbd> / <kbd>ZL</kbd></td><td>Seek +5 s / −5 s</td></tr>
+            <tr><td><kbd>A</kbd></td><td>Play / Pause</td></tr>
+            <tr><td><kbd>X</kbd></td><td>Toggle shuffle</td></tr>
+            <tr><td><kbd>Y</kbd></td><td>Toggle repeat</td></tr>
+            <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Crystalizer on / off</td></tr>
+            <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Crystalizer strength</td></tr>
+            <tr><td><kbd>B</kbd></td><td>Toggle controls overlay</td></tr>
+            <tr><td><kbd>Stick R</kbd></td><td>Open post in Roséverse</td></tr>
+            <tr><td><kbd>Stick L</kbd></td><td>Post to Roséverse</td></tr>
+          </table>
+          <h3 style="margin-top:1.2rem">Wii Remote</h3>
           <table class="ctrl-table">
             <tr><td><kbd>+</kbd> / <kbd>−</kbd></td><td>Volume +5 / −5</td></tr>
             <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Next / Previous track</td></tr>
@@ -263,11 +302,12 @@ python3 tools/make_creds.py /tmp/librespot-cache/credentials.json</code></pre>
             <li><a href="https://devkitpro.org/wiki/Getting_Started" target="_blank">devkitPro</a> with devkitPPC</li>
             <li>Wii U portlibs: <code>dkp-pacman -S wut wiiu-sdl2 wiiu-sdl2_ttf wiiu-curl wiiu-mbedtls</code></li>
             <li>Tremor (libvorbisidec) — portlib or auto-built from vendor source</li>
+            <li>For the plugin: <a href="https://github.com/wiiu-env/WiiUPluginSystem" target="_blank">WiiUPluginSystem</a> (WUPS SDK) built from source</li>
           </ul>
           <pre><code>git clone https://github.com/Happynico7504/spotify-wiiu
 cd spotify-wiiu
-make</code></pre>
-          <p>Produces <code>spotify-wiiu.wuhb</code>.</p>
+make                         # spotify-wiiu.wuhb
+make -C plugins/cache-sweep  # spotify-cache-sweep.wps</code></pre>
         </div>
 
         <div class="doc-block">
@@ -278,6 +318,8 @@ make</code></pre>
   ui/        SDL2 display, visualiser, font
   spotify/   Shared utilities
   olv/       Roséverse (nn_olv) integration
+plugins/
+  cache-sweep/  Aroma WUPS cache GC plugin
 vendor/      cJSON, stb_image
 tools/
   setup/     Native setup tool (Rust)
@@ -286,7 +328,7 @@ tools/
 meta/        Wii U app metadata
 content/     Bundled assets (font)
 .github/
-  Dockerfile      Builder image
+  Dockerfile      Builder image (devkitPPC + WUPS + Rust)
   workflows/      CI pipelines</code></pre>
         </div>
 
