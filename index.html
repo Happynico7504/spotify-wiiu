@@ -33,6 +33,7 @@
       <ul>
         <li><a href="#features">Features</a></li>
         <li><a href="#setup">Setup</a></li>
+        <li><a href="#troubleshooting">Troubleshooting</a></li>
         <li><a href="#controls">Controls</a></li>
         <li><a href="#docs">Docs</a></li>
         <li><a href="https://github.com/Happynico7504/spotify-wiiu" class="btn-nav" target="_blank">GitHub</a></li>
@@ -235,6 +236,16 @@ python3 tools/make_creds.py /tmp/librespot-cache/credentials.json</code></pre>
     </div>
   </section>
 
+  <!-- ── Troubleshooting ──────────────────────────────────────────────── -->
+  <section id="troubleshooting">
+    <div class="container">
+      <h2>Troubleshooting / Reporting a Bug</h2>
+      <p>Every run creates a fresh log at <code>SD:/spotify_log.txt</code>. The file is overwritten on each launch and flushed after every line, so it captures everything up to a crash.</p>
+      <p>To collect it: leave the SD card in the Wii U until the app exits or crashes, then copy <code>spotify_log.txt</code> from the root of the SD card to your PC and paste it into the bug report.</p>
+      <p><a href="https://github.com/Happynico7504/spotify-wiiu/issues/new/choose" target="_blank">Open a GitHub issue</a> — the bug report template will guide you through the rest.</p>
+    </div>
+  </section>
+
   <!-- ── Controls ─────────────────────────────────────────────────────── -->
   <section id="controls">
     <div class="container">
@@ -357,13 +368,6 @@ content/     Bundled assets (font)
           <h3>Roséverse (Miiverse)</h3>
           <p>Uses Nintendo's <code>nn_olv.rpl</code> loaded via OSDynLoad. Posts are scoped to community ID <strong>157</strong> with a track-ID search key so each song shows its own posts.</p>
           <p>Posts are always visible and auto-advance based on track timestamps (or every 5 s for untagged posts). Press <kbd>Stick R</kbd> to open the current post in the Roséverse overlay. Post with <kbd>Stick L</kbd> — pre-filled with the current track name and artist.</p>
-        </div>
-
-        <div class="doc-block">
-          <h3>Troubleshooting / Reporting a Bug</h3>
-          <p>Every run creates a fresh log at <code>SD:/spotify_log.txt</code>. The file is overwritten on each launch and flushed after every line, so it captures everything up to a crash.</p>
-          <p>To collect it: leave the SD card in the Wii U until the app exits or crashes, then copy <code>spotify_log.txt</code> from the root of the SD card to your PC and paste it into the bug report.</p>
-          <p><a href="https://github.com/Happynico7504/spotify-wiiu/issues/new/choose" target="_blank">Open a GitHub issue</a> — the bug report template will guide you through the rest.</p>
         </div>
 
         <div class="doc-block">
