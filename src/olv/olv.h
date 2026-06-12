@@ -19,6 +19,8 @@ struct Post {
     int         feeling;      // 0–5
     uint32_t    position_ms;  // track position when posted; 0 = no metadata
     uint32_t    duration_ms;  // track duration at post time;  0 = no metadata
+    // Raw TGA bytes from GetBodyMemo (320×120 BGRA from lower-left); empty = text-only post.
+    std::vector<uint8_t> memo;
 };
 
 // Detect Roséverse via discovery endpoint, load nn_olv.rpl, initialise.

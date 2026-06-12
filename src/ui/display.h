@@ -43,9 +43,10 @@ public:
 
     // ── Roséverse OLV post card ──────────────────────────────────────────────
     struct OLVPost {
-        std::string body;
-        std::string screen_name;
-        int         feeling = 0;  // 0–5
+        std::string          body;
+        std::string          screen_name;
+        int                  feeling = 0;  // 0–5
+        std::vector<uint8_t> memo;         // raw TGA 320×120 BGRA from lower-left; empty = text-only
     };
     // Pass nullptr to hide the card.
     void set_olv_post(const OLVPost *post);
@@ -139,6 +140,11 @@ private:
     bool        olv_visible_      = false;
     std::string olv_body_;
     std::string olv_header_;  // pre-formatted "@name  :)" line
+    // Pending drawing texture (set from any thread under mu_; created on main thread in render())
+    std::vector<uint8_t> olv_memo_pending_;
+    bool                 olv_memo_dirty_ = false;
+    // Drawing texture — main-thread only, NOT under mu_
+    SDL_Texture         *olv_memo_tex_   = nullptr;
 
     // ── spectrum visualizer ───────────────────────────────────────────────────
     Connect::AudioPipeline *audio_src_ = nullptr;

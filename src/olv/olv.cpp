@@ -55,6 +55,7 @@ using FnGetBodyText      = int32_t (*)(const void *, uint16_t *, uint32_t);  // 
 using FnGetMiiNickname   = const uint16_t * (*)(const void *);               // GetMiiNickname() → const wchar_t*
 using FnGetFeeling       = int8_t  (*)(const void *);                        // GetFeeling() → s8
 using FnGetAppData       = int32_t (*)(const void *, uint8_t *, uint32_t *, uint32_t); // GetAppData(buf,&sz,maxSz)
+using FnGetMemo          = int32_t (*)(const void *, uint8_t *, uint32_t *, uint32_t); // GetBodyMemo(buf,&sz,maxSz)
 static FnDownloadPosts   s_fn_download         = nullptr;
 static FnCtor            s_fn_ctor_post        = nullptr;
 static FnCtor            s_fn_ctor_topic       = nullptr;
@@ -65,6 +66,7 @@ static FnGetBodyText     s_fn_get_body_text    = nullptr;
 static FnGetMiiNickname  s_fn_get_mii_nickname = nullptr;
 static FnGetFeeling      s_fn_get_feeling      = nullptr;
 static FnGetAppData      s_fn_get_appdata      = nullptr;
+static FnGetMemo         s_fn_get_memo         = nullptr;
 
 using FnGetPostId     = const char * (*)(const void *);
 static FnGetPostId    s_fn_get_post_id         = nullptr;
@@ -208,6 +210,9 @@ bool init() {
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
         "GetAppData__Q3_2nn3olv18DownloadedDataBaseCFPUcPUiUi",
         reinterpret_cast<void **>(&s_fn_get_appdata));
+    OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
+        "GetBodyMemo__Q3_2nn3olv18DownloadedDataBaseCFPUcPUiUi",
+        reinterpret_cast<void **>(&s_fn_get_memo));
 
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
         "GetPostId__Q3_2nn3olv18DownloadedPostDataCFv",
@@ -225,14 +230,15 @@ bool init() {
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
         "StartPortalApp__Q2_2nn3olvFPCQ3_2nn3olv19StartPortalAppParam",
         reinterpret_cast<void **>(&s_fn_start_portal));
-    WHBLogPrintf("olv: dl community=%s maxnum=%s search=%s body=%s nickname=%s feeling=%s appdata=%s",
+    WHBLogPrintf("olv: dl community=%s maxnum=%s search=%s body=%s nickname=%s feeling=%s appdata=%s memo=%s",
                  s_fn_dl_set_community    ? "ok" : "missing",
                  s_fn_dl_set_max_num      ? "ok" : "missing",
                  s_fn_dl_set_search       ? "ok" : "missing",
                  s_fn_get_body_text       ? "ok" : "missing",
                  s_fn_get_mii_nickname    ? "ok" : "missing",
                  s_fn_get_feeling         ? "ok" : "missing",
-                 s_fn_get_appdata         ? "ok" : "missing");
+                 s_fn_get_appdata         ? "ok" : "missing",
+                 s_fn_get_memo            ? "ok" : "missing");
     WHBLogPrintf("olv: portal community=%s postid=%s start=%s getpostid=%s",
                  s_fn_portal_set_community ? "ok" : "missing",
                  s_fn_portal_set_post_id   ? "ok" : "missing",
@@ -371,7 +377,16 @@ std::vector<Post> fetch_posts(uint32_t community_id, uint32_t limit,
                         s_fn_get_body_text(p, buf, 200);
                         post.body = utf16_to_utf8(buf, 200);
                     }
-                    if (post.body.empty()) continue;
+                    // TGA 320×120 BGRA from lower-left; max compressed → ~40 KB in work buf,
+                    // decompressed to 18 + 320*120*4 = 153,618 bytes in the output buffer.
+                    if (s_fn_get_memo) {
+                        static uint8_t s_memo_buf[153644];
+                        uint32_t memo_sz = 0;
+                        int32_t mr = s_fn_get_memo(p, s_memo_buf, &memo_sz, sizeof(s_memo_buf));
+                        if ((mr == 0 || (uint32_t)mr == 0x01100080u) && memo_sz >= 18)
+                            post.memo.assign(s_memo_buf, s_memo_buf + memo_sz);
+                    }
+                    if (post.body.empty() && post.memo.empty()) continue;
                     if (s_fn_get_post_id)
                         post.post_id = safe_cstr(s_fn_get_post_id(p));
                     if (s_fn_get_mii_nickname) {

@@ -118,8 +118,9 @@ void Display::shutdown() {
     lc_shuf_.free();  lc_rep_.free();   lc_xtal_.free();  lc_bhint_.free();
     lc_wait_[0].free(); lc_wait_[1].free();
     lc_olv_header_.free(); lc_olv_body_.free();
-    if (bg_tex_)     { SDL_DestroyTexture(bg_tex_);  bg_tex_  = nullptr; }
-    if (art_tex_)    { SDL_DestroyTexture(art_tex_); art_tex_ = nullptr; }
+    if (bg_tex_)       { SDL_DestroyTexture(bg_tex_);       bg_tex_       = nullptr; }
+    if (art_tex_)      { SDL_DestroyTexture(art_tex_);      art_tex_      = nullptr; }
+    if (olv_memo_tex_) { SDL_DestroyTexture(olv_memo_tex_); olv_memo_tex_ = nullptr; }
     if (font_sm_)    TTF_CloseFont(font_sm_);
     if (font_md_)    TTF_CloseFont(font_md_);
     if (font_lg_)    TTF_CloseFont(font_lg_);
@@ -190,9 +191,11 @@ void Display::toggle_controls() {
 void Display::set_olv_post(const OLVPost *post) {
     std::lock_guard<std::mutex> lk(mu_);
     if (!post) {
-        olv_visible_ = false;
-        olv_body_    = "";
-        olv_header_  = "";
+        olv_visible_       = false;
+        olv_body_          = "";
+        olv_header_        = "";
+        olv_memo_pending_.clear();
+        olv_memo_dirty_    = true;
         return;
     }
     olv_visible_ = true;
@@ -203,6 +206,9 @@ void Display::set_olv_post(const OLVPost *post) {
                         ? OLV::FEELING_STR[post->feeling] : "";
     olv_header_ = "@" + post->screen_name;
     if (feeling && feeling[0]) { olv_header_ += "  "; olv_header_ += feeling; }
+
+    olv_memo_pending_ = post->memo;
+    olv_memo_dirty_   = true;
 }
 
 // ── render (main thread) ──────────────────────────────────────────────────────
@@ -238,6 +244,46 @@ void Display::render() {
             }
             art_pending_data_.clear();
             art_ready_ = false;
+        }
+    }
+
+    // Upload pending OLV drawing texture (GPU ops must be on main thread)
+    {
+        bool dirty = false;
+        std::vector<uint8_t> memo_data;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            if (olv_memo_dirty_) {
+                olv_memo_dirty_ = false;
+                dirty = true;
+                memo_data = std::move(olv_memo_pending_);
+            }
+        }
+        if (dirty && tv_ren_) {
+            if (olv_memo_tex_) { SDL_DestroyTexture(olv_memo_tex_); olv_memo_tex_ = nullptr; }
+            if (!memo_data.empty()) {
+                // TGA: 18-byte header, then 320×120 pixels in BGRA order from bottom-left row.
+                // Flip vertically and swap B/R channels to get top-left RGBA for SDL.
+                constexpr int MW = 320, MH = 120, HDR = 18;
+                if (memo_data.size() >= (size_t)(HDR + MW * MH * 4)) {
+                    const uint8_t *src = memo_data.data() + HDR;
+                    std::vector<uint8_t> rgba(MW * MH * 4);
+                    for (int row = 0; row < MH; ++row) {
+                        const uint8_t *s = src + (MH - 1 - row) * MW * 4;
+                        uint8_t       *d = rgba.data() + row * MW * 4;
+                        for (int x = 0; x < MW; ++x, s += 4, d += 4) {
+                            d[0] = s[2]; d[1] = s[1]; d[2] = s[0]; d[3] = s[3];
+                        }
+                    }
+                    SDL_Surface *surf = SDL_CreateRGBSurfaceWithFormatFrom(
+                        rgba.data(), MW, MH, 32, MW * 4, SDL_PIXELFORMAT_RGBA32);
+                    if (surf) {
+                        olv_memo_tex_ = SDL_CreateTextureFromSurface(tv_ren_, surf);
+                        SDL_FreeSurface(surf);
+                        WHBLogPrint("display: olv drawing loaded");
+                    }
+                }
+            }
         }
     }
 
@@ -850,16 +896,23 @@ void Display::render_olv_card(SDL_Renderer *r, int w, int h) {
         hdr  = olv_header_;
         body = olv_body_;
     }
-    if (hdr.empty() && body.empty()) return;
+    if (hdr.empty() && body.empty() && !olv_memo_tex_) return;
 
     float s = w / 1280.0f;
     auto  S = [&](int v) { return (int)(v * s); };
 
-    // Aligned with the text column, below the artist name (ARTIST_Y=170).
-    const int card_x = S(Theme::TEXT_X);
-    const int card_y = S(Theme::ARTIST_Y + 60);  // ~230
-    const int card_w = S(Theme::BAR_X + Theme::BAR_W - Theme::TEXT_X);  // 792
-    const int card_h = S(66);
+    const int card_x  = S(Theme::TEXT_X);
+    const int card_y  = S(Theme::ARTIST_Y + 60);  // ~230 at 1280 scale
+    const int card_w  = S(Theme::BAR_X + Theme::BAR_W - Theme::TEXT_X);
+
+    // Drawing rendered at half native size: 160×60 (preserves 320:120 = 8:3 aspect)
+    const int draw_w = S(160), draw_h = S(60);
+
+    // Card height grows to fit: header row + optional drawing + optional body text
+    int card_h = S(22);  // header
+    if (olv_memo_tex_) card_h += draw_h + S(4);
+    if (!body.empty())  card_h += S(22);
+    card_h += S(6);  // bottom padding
 
     // Dark semi-transparent card background
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
@@ -869,27 +922,33 @@ void Display::render_olv_card(SDL_Renderer *r, int w, int h) {
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
 
     // Accent left-edge bar
-    SDL_SetRenderDrawColor(r,
-        Theme::ACCENT.r, Theme::ACCENT.g, Theme::ACCENT.b, 255);
+    SDL_SetRenderDrawColor(r, Theme::ACCENT.r, Theme::ACCENT.g, Theme::ACCENT.b, 255);
     SDL_Rect bar = { card_x, card_y, S(3), card_h };
     SDL_RenderFillRect(r, &bar);
 
-    const int tx  = card_x + S(12);
-    const int mw  = card_w - S(16);
+    const int tx = card_x + S(12);
+    const int mw = card_w - S(16);
+    int cy = card_y + S(6);
 
-    // Header: "Roséverse  @name  :)" — accent colour, small font
+    // Header: "Miiverse  @name  :)" — accent colour, small font
     if (font_sm_) {
         std::string full_hdr = "Miiverse  " + hdr;
-        update_label(lc_olv_header_, r, font_sm_, full_hdr.c_str(),
-                     Theme::ACCENT, mw);
-        draw_label(r, lc_olv_header_, tx, card_y + S(6));
+        update_label(lc_olv_header_, r, font_sm_, full_hdr.c_str(), Theme::ACCENT, mw);
+        draw_label(r, lc_olv_header_, tx, cy);
+    }
+    cy += S(16);
+
+    // Drawing (if present)
+    if (olv_memo_tex_) {
+        SDL_Rect dst = { tx, cy, draw_w, draw_h };
+        SDL_RenderCopy(r, olv_memo_tex_, nullptr, &dst);
+        cy += draw_h + S(4);
     }
 
     // Body text — white, medium font, truncated to card width
     if (font_md_ && !body.empty()) {
-        update_label(lc_olv_body_, r, font_md_, body.c_str(),
-                     Theme::TEXT, mw);
-        draw_label(r, lc_olv_body_, tx, card_y + S(30));
+        update_label(lc_olv_body_, r, font_md_, body.c_str(), Theme::TEXT, mw);
+        draw_label(r, lc_olv_body_, tx, cy);
     }
 }
 

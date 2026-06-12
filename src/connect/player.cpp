@@ -643,8 +643,7 @@ void Player::handle_buttons(uint32_t trigger) {
     }
     if ((trigger & VPAD_BUTTON_STICK_L) && OLV::is_available() && spirc_playing_) {
         // ♪ Title — Artist  (UTF-8: ♪ = \xe2\x99\xaa, — = \xe2\x80\x94)
-        std::string body = "\xe2\x99\xaa " + track_title_ + " \xe2\x80\x94 " + track_artist_;
-        OLV::open_post_applet(body, track_explicit_, track_title_ + " - " + track_artist_, track_id_,
+        OLV::open_post_applet("", track_explicit_, track_title_ + " - " + track_artist_, track_id_,
                               (uint32_t)std::max(0, audio_->position_ms()), (uint32_t)track_dur_ms_);
     }
 }
@@ -847,8 +846,7 @@ void Player::handle_pro_buttons(uint32_t trigger) {
         if (has_post) OLV::open_overlay(post_id);
     }
     if ((trigger & WPAD_PRO_BUTTON_STICK_L) && OLV::is_available() && spirc_playing_) {
-        std::string body = "\xe2\x99\xaa " + track_title_ + " \xe2\x80\x94 " + track_artist_;
-        OLV::open_post_applet(body, track_explicit_, track_title_ + " - " + track_artist_, track_id_,
+        OLV::open_post_applet("", track_explicit_, track_title_ + " - " + track_artist_, track_id_,
                               (uint32_t)std::max(0, audio_->position_ms()), (uint32_t)track_dur_ms_);
     }
     if ((trigger & WPAD_PRO_BUTTON_X) && spirc_) {
@@ -885,7 +883,7 @@ void Player::olv_show_current() {
     }
     olv_shown_at_ = OSGetSystemTick();
     const OLV::Post &p = olv_posts_[olv_post_idx_];
-    UI::Display::OLVPost dp{ p.body, p.screen_name, p.feeling };
+    UI::Display::OLVPost dp{ p.body, p.screen_name, p.feeling, p.memo };
     display_.set_olv_post(&dp);
 }
 
