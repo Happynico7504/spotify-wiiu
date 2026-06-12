@@ -484,7 +484,7 @@ fn main() {
                         // Install cache-sweep plugin into the Aroma plugins/ dir
                         if let Some(wps) = &assets.wps {
                             if let Some(env) = &aroma_env {
-                                let plugins_dir = env.join("modules").join("plugins");
+                                let plugins_dir = env.join("plugins");
                                 if let Err(e) = fs::create_dir_all(&plugins_dir) {
                                     warn(&format!("Could not create plugins directory: {e}"));
                                 }
