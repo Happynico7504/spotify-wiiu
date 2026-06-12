@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spotify Wii U</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ── Nav ─────────────────────────────────────────────────────────── -->
+  <nav>
+    <div class="nav-inner">
+      <span class="nav-logo">🎵 Spotify Wii U</span>
+      <ul>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#setup">Setup</a></li>
+        <li><a href="#controls">Controls</a></li>
+        <li><a href="#docs">Docs</a></li>
+        <li><a href="https://github.com/Happynico7504/spotify-wiiu" class="btn-nav" target="_blank">GitHub</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- ── Hero ────────────────────────────────────────────────────────── -->
+  <header class="hero">
+    <div class="hero-inner">
+      <p class="hero-eyebrow">Unofficial homebrew for Nintendo Wii U</p>
+      <h1>Spotify <span class="green">Connect</span><br>on Wii U</h1>
+      <p class="hero-sub">Stream from any Spotify app directly to your console — album art, real-time controls, Miiverse posts and all.</p>
+      <div class="hero-cta">
+        <a href="https://github.com/Happynico7504/spotify-wiiu/releases/tag/bundle-latest" class="btn-primary" target="_blank">Download Bundle</a>
+        <a href="#setup" class="btn-ghost">Setup Guide</a>
+      </div>
+      <p class="hero-note">Requires <strong>Spotify Premium</strong> · Runs under <a href="https://aroma.foryour.cafe/" target="_blank">Aroma</a> homebrew</p>
+    </div>
+  </header>
+
+  <!-- ── Features ────────────────────────────────────────────────────── -->
+  <section id="features">
+    <div class="container">
+      <h2>Features</h2>
+      <div class="feature-grid">
+        <div class="card">
+          <div class="card-icon">🎵</div>
+          <h3>Spotify Connect</h3>
+          <p>Select "Wii U" as a playback device from any Spotify app. Control music from your phone, PC, or directly on the console.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">📋</div>
+          <h3>Full Playlist Context</h3>
+          <p>Skip and auto-advance across entire playlists and albums — not just the visible window.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🔀</div>
+          <h3>Shuffle &amp; Repeat</h3>
+          <p>Toggle on the console or from any connected Spotify app. State syncs both ways.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🖼️</div>
+          <h3>Album Art &amp; Track Info</h3>
+          <p>Full-screen album art and track metadata fetched automatically for every track.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">✨</div>
+          <h3>Audio Crystalizer</h3>
+          <p>Harmonic-enhancement effect with adjustable strength for richer sound.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">📊</div>
+          <h3>Spectrum Visualizer</h3>
+          <p>Real-time frequency visualizer displayed alongside the album art.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🎮</div>
+          <h3>Multi-Controller</h3>
+          <p>GamePad, Wii Remote, and Pro Controller all supported out of the box.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🌸</div>
+          <h3>Roséverse Integration</h3>
+          <p>Browse Miiverse-style posts for the current track via Roséverse (nn_olv).</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Setup ────────────────────────────────────────────────────────── -->
+  <section id="setup" class="alt">
+    <div class="container">
+      <h2>Setup</h2>
+
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab('easy')">Easy (Recommended)</button>
+        <button class="tab" onclick="switchTab('manual')">Manual</button>
+      </div>
+
+      <div id="tab-easy" class="tab-content active">
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <h3>Download the bundle</h3>
+              <p>Grab the archive for your platform from the <a href="https://github.com/Happynico7504/spotify-wiiu/releases/tag/bundle-latest" target="_blank">latest bundle release</a>:</p>
+              <table class="dl-table">
+                <tr><td>Windows</td><td><code>spotify-wiiu-setup-windows-x64.zip</code></td></tr>
+                <tr><td>Linux</td><td><code>spotify-wiiu-setup-linux-x64.tar.gz</code></td></tr>
+                <tr><td>macOS (Apple Silicon)</td><td><code>spotify-wiiu-setup-macos-arm64.tar.gz</code></td></tr>
+              </table>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <h3>Run the setup tool</h3>
+              <p>Extract the archive and run:</p>
+              <pre><code><span class="cmt"># Linux / macOS</span>
+chmod +x librespot spotify-wiiu-setup
+./spotify-wiiu-setup
+
+<span class="cmt"># Windows</span>
+spotify-wiiu-setup.exe</code></pre>
+              <p>The tool launches librespot, waits for you to select <strong>"wii-u-setup"</strong> in any Spotify app, converts the credentials, and offers to copy them to your SD card.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <h3>Copy to SD card</h3>
+              <p>The setup tool can do this automatically. If you skipped it, copy manually:</p>
+              <pre><code>SD:/spotify_saved_creds.bin</code></pre>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <h3>Launch</h3>
+              <p>Insert the SD card, power on the Wii U, open the <strong>Aroma Homebrew Launcher</strong>, and select <strong>Spotify Wii U</strong>. Then select <strong>"Wii U"</strong> from any Spotify app's device list.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-manual" class="tab-content">
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <h3>Get librespot</h3>
+              <p>Download a prebuilt binary from the <a href="https://github.com/Happynico7504/spotify-wiiu/releases/tag/librespot-tools" target="_blank">librespot-tools release</a>, or install it yourself:</p>
+              <pre><code><span class="cmt"># Arch Linux</span>
+sudo pacman -S librespot
+
+<span class="cmt"># Debian / Ubuntu</span>
+sudo apt install librespot
+
+<span class="cmt"># Any platform via Cargo</span>
+cargo install librespot</code></pre>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <h3>Authenticate once</h3>
+              <pre><code><span class="cmt"># Windows</span>
+librespot.exe --name "wii-u-setup" --cache %TEMP%\librespot-cache
+
+<span class="cmt"># Linux / macOS</span>
+librespot --name "wii-u-setup" --cache /tmp/librespot-cache</code></pre>
+              <p>Open any Spotify app, select <strong>"wii-u-setup"</strong> as your playback device. Wait for <code>Authenticated as ...</code> then press Ctrl+C.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <h3>Convert credentials</h3>
+              <pre><code><span class="cmt"># Windows</span>
+python tools\make_creds.py %TEMP%\librespot-cache\credentials.json
+
+<span class="cmt"># Linux / macOS</span>
+python3 tools/make_creds.py /tmp/librespot-cache/credentials.json</code></pre>
+              <p>This writes <code>spotify_saved_creds.bin</code> in the current directory.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <h3>Copy to SD card &amp; launch</h3>
+              <p>Copy <code>spotify_saved_creds.bin</code> to the root of your Wii U SD card, then launch from the Aroma Homebrew Launcher.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Controls ─────────────────────────────────────────────────────── -->
+  <section id="controls">
+    <div class="container">
+      <h2>Controls</h2>
+      <div class="ctrl-grid">
+        <div>
+          <h3>GamePad &amp; Pro Controller</h3>
+          <table class="ctrl-table">
+            <tr><td><kbd>+</kbd> / <kbd>−</kbd></td><td>Volume +5 / −5</td></tr>
+            <tr><td><kbd>R</kbd> / <kbd>L</kbd></td><td>Next / Previous track</td></tr>
+            <tr><td><kbd>ZR</kbd> / <kbd>ZL</kbd></td><td>Seek +5 s / −5 s</td></tr>
+            <tr><td><kbd>A</kbd></td><td>Play / Pause</td></tr>
+            <tr><td><kbd>X</kbd></td><td>Toggle shuffle</td></tr>
+            <tr><td><kbd>Y</kbd></td><td>Toggle repeat</td></tr>
+            <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Crystalizer on / off</td></tr>
+            <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Crystalizer strength</td></tr>
+            <tr><td><kbd>B</kbd></td><td>Toggle controls overlay</td></tr>
+            <tr><td><kbd>Stick R</kbd></td><td>Toggle Roséverse card</td></tr>
+            <tr><td><kbd>Stick L</kbd></td><td>Post to Roséverse</td></tr>
+          </table>
+        </div>
+        <div>
+          <h3>Wii Remote</h3>
+          <table class="ctrl-table">
+            <tr><td><kbd>+</kbd> / <kbd>−</kbd></td><td>Volume +5 / −5</td></tr>
+            <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Next / Previous track</td></tr>
+            <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Seek +5 s / −5 s</td></tr>
+            <tr><td><kbd>A</kbd></td><td>Play / Pause</td></tr>
+            <tr><td><kbd>1</kbd></td><td>Toggle shuffle</td></tr>
+            <tr><td><kbd>2</kbd></td><td>Toggle repeat</td></tr>
+            <tr><td><kbd>B</kbd></td><td>Toggle controls overlay</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Docs ──────────────────────────────────────────────────────────── -->
+  <section id="docs" class="alt">
+    <div class="container">
+      <h2>Power User Docs</h2>
+
+      <div class="docs-grid">
+
+        <div class="doc-block">
+          <h3>Building from source</h3>
+          <p>Prerequisites:</p>
+          <ul>
+            <li><a href="https://devkitpro.org/wiki/Getting_Started" target="_blank">devkitPro</a> with devkitPPC</li>
+            <li>Wii U portlibs: <code>dkp-pacman -S wut wiiu-sdl2 wiiu-sdl2_ttf wiiu-curl wiiu-mbedtls</code></li>
+            <li>Tremor (libvorbisidec) — portlib or auto-built from vendor source</li>
+          </ul>
+          <pre><code>git clone https://github.com/Happynico7504/spotify-wiiu
+cd spotify-wiiu
+make</code></pre>
+          <p>Produces <code>spotify-wiiu.wuhb</code>.</p>
+        </div>
+
+        <div class="doc-block">
+          <h3>Project layout</h3>
+          <pre><code>src/
+  connect/   AP handshake, Spirc, audio, player
+  discovery/ Zeroconf / mDNS
+  ui/        SDL2 display, visualiser, font
+  spotify/   Shared utilities
+  olv/       Roséverse (nn_olv) integration
+vendor/      cJSON, stb_image
+tools/
+  setup/     Native setup tool (Rust)
+  setup.py   Python equivalent
+  make_creds.py  Credential converter
+meta/        Wii U app metadata
+content/     Bundled assets (font)
+.github/
+  Dockerfile      Builder image
+  workflows/      CI pipelines</code></pre>
+        </div>
+
+        <div class="doc-block">
+          <h3>CI / Docker</h3>
+          <p>A pre-baked builder image is published to GHCR and used by all Linux CI jobs:</p>
+          <pre><code>ghcr.io/happynico7504/spotify-wiiu-builder:latest</code></pre>
+          <p>Contains devkitPPC, WUT, all Wii U portlibs, and a native Rust toolchain with the <code>x86_64-unknown-linux-musl</code> target for static setup-tool builds.</p>
+          <p>Rebuild the image manually via <strong>Actions → Build builder image → Run workflow</strong>.</p>
+        </div>
+
+        <div class="doc-block">
+          <h3>Credential format</h3>
+          <p>The binary format read by the homebrew:</p>
+          <pre><code>[1 byte]  auth_type
+           0 = user/pass
+           1 = stored credentials ← normal
+           3 = Spotify token
+[N bytes] raw auth blob (base64-decoded)</code></pre>
+          <p>Both the Rust setup tool and <code>tools/make_creds.py</code> handle old and new librespot JSON formats.</p>
+        </div>
+
+        <div class="doc-block">
+          <h3>Roséverse (Miiverse)</h3>
+          <p>Uses Nintendo's <code>nn_olv.rpl</code> loaded via OSDynLoad. Posts are scoped to community ID <strong>157</strong> with a track-ID search key so each song shows its own posts.</p>
+          <p>Toggle with <kbd>Stick R</kbd>. The card auto-advances every 5 s and refetches on track change. Post with <kbd>Stick L</kbd> — pre-filled with the current track name and artist.</p>
+        </div>
+
+        <div class="doc-block">
+          <h3>Releases</h3>
+          <table class="ctrl-table">
+            <tr><td><a href="https://github.com/Happynico7504/spotify-wiiu/releases/latest" target="_blank">latest (v*)</a></td><td>Wii U <code>.wuhb</code> package</td></tr>
+            <tr><td><a href="https://github.com/Happynico7504/spotify-wiiu/releases/tag/bundle-latest" target="_blank">bundle-latest</a></td><td>Setup tool + librespot bundles</td></tr>
+            <tr><td><a href="https://github.com/Happynico7504/spotify-wiiu/releases/tag/librespot-tools" target="_blank">librespot-tools</a></td><td>Standalone librespot binaries</td></tr>
+          </table>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Footer ───────────────────────────────────────────────────────── -->
+  <footer>
+    <div class="container">
+      <p>Not affiliated with or endorsed by Spotify AB · <a href="https://github.com/Happynico7504/spotify-wiiu/blob/main/LICENSE" target="_blank">MIT License</a> · <a href="https://github.com/Happynico7504/spotify-wiiu" target="_blank">GitHub</a></p>
+    </div>
+  </footer>
+
+  <script>
+    function switchTab(id) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelector('#tab-' + id).classList.add('active');
+      event.target.classList.add('active');
+    }
+  </script>
+
+</body>
+</html>
