@@ -536,10 +536,16 @@ void open_post_applet(const std::string &body_utf8, bool is_explicit,
     }
 
     // Add pre-loaded stamps so users can place them on their drawings.
+    // AddStampData expects raw BGRA pixels (100×100 = 40000 bytes), not a TGA file,
+    // so skip the 18-byte TGA header we prepend for storage convenience.
     if (s_fn_add_stamp) {
+        constexpr uint32_t TGA_HDR = 18;
         int added = 0;
         for (const auto &tga : s_stamp_tgas) {
-            int32_t sr = s_fn_add_stamp(s_upload_param, tga.data(), (uint32_t)tga.size());
+            if (tga.size() <= TGA_HDR) continue;
+            int32_t sr = s_fn_add_stamp(s_upload_param,
+                                        tga.data() + TGA_HDR,
+                                        (uint32_t)(tga.size() - TGA_HDR));
             if (sr == 0 || (uint32_t)sr == 0x01100080u) ++added;
             else WHBLogPrintf("olv: AddStampData[%d] → 0x%08X", added, (uint32_t)sr);
         }
