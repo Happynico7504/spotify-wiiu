@@ -89,10 +89,7 @@ jobs:
       - name: Create release
         run: |
           TAG="${GITHUB_REF_NAME:-bundle-latest}"
-          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" \
-            --title "Spotify Wii U — Platform Bundles ($TAG)" \
-            --notes "All-in-one credential setup bundles for Spotify Wii U.
+          NOTES="All-in-one credential setup bundles for Spotify Wii U.
 
           Each archive contains two executables:
           - **\`spotify-wiiu-setup\`** — guided setup tool
@@ -109,10 +106,25 @@ jobs:
           4. Run \`spotify-wiiu-setup\` (or \`spotify-wiiu-setup.exe\` on Windows)
           5. Follow the on-screen prompts — the tool handles the rest
 
-          See the [README](../../blob/main/README.md#1-get-credentials) for full details." \
-            spotify-wiiu-setup-linux-x64.tar.gz \
-            spotify-wiiu-setup-windows-x64.zip \
-            spotify-wiiu-setup-macos-arm64.tar.gz
+          See the [README](../../blob/main/README.md#1-get-credentials) for full details."
+
+          ASSETS="spotify-wiiu-setup-linux-x64.tar.gz
+                  spotify-wiiu-setup-windows-x64.zip
+                  spotify-wiiu-setup-macos-arm64.tar.gz"
+
+          # Versioned release
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" \
+            --title "Spotify Wii U — Platform Bundles ($TAG)" \
+            --notes "$NOTES" \
+            $ASSETS
+
+          # Floating bundle-latest tag — always points to the newest bundle
+          gh release delete bundle-latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create bundle-latest \
+            --title "Spotify Wii U — Platform Bundles (latest)" \
+            --notes "$NOTES" \
+            $ASSETS
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
