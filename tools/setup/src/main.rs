@@ -239,7 +239,7 @@ fn pick_aroma_environment(sd: &Path) -> Option<PathBuf> {
 // ── Release download ──────────────────────────────────────────────────────────
 
 const GITHUB_API: &str =
-    "https://api.github.com/repos/Happynico7504/spotify-wiiu/releases/latest";
+    "https://api.github.com/repos/Happynico7504/spotify-wiiu/releases?per_page=20";
 
 struct ReleaseAssets {
     tag:  String,
@@ -248,17 +248,29 @@ struct ReleaseAssets {
 }
 
 fn download_release_assets() -> Result<ReleaseAssets, Box<dyn std::error::Error>> {
-    info("Fetching latest release info...");
+    info("Fetching release list...");
     let resp = ureq::get(GITHUB_API)
         .set("User-Agent", "spotify-wiiu-setup")
         .set("Accept", "application/vnd.github.v3+json")
         .call()?;
 
-    let json: Value = serde_json::from_str(&resp.into_string()?)?;
-    let tag = json["tag_name"].as_str().unwrap_or("?").to_string();
-    ok(&format!("Latest release: {tag}"));
+    let releases: Value = serde_json::from_str(&resp.into_string()?)?;
+    let releases = releases.as_array().ok_or("unexpected releases response")?;
 
-    let assets = json["assets"].as_array().ok_or("no assets in release")?;
+    // Pick the newest release that actually ships spotify-wiiu.wuhb.
+    // This skips bundle-v* and other releases that don't carry app assets.
+    let release = releases.iter()
+        .find(|r| {
+            r["assets"].as_array()
+                .map(|a| a.iter().any(|x| x["name"].as_str() == Some("spotify-wiiu.wuhb")))
+                .unwrap_or(false)
+        })
+        .ok_or("no release found containing spotify-wiiu.wuhb")?;
+
+    let tag = release["tag_name"].as_str().unwrap_or("?").to_string();
+    ok(&format!("Latest app release: {tag}"));
+
+    let assets = release["assets"].as_array().ok_or("no assets in release")?;
 
     let find_url = |name: &str| -> Option<String> {
         assets.iter()
