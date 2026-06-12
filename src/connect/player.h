@@ -52,10 +52,22 @@ private:
 
     // GamePad input (called from main loop, vpad already read)
     void handle_buttons(uint32_t trigger);
+    // GamePad touch input (DRC touchscreen)
+    void handle_touch(const void *vpad_status);   // takes VPADStatus*; void* avoids header pull-in
     // Wiimote input (called from main loop, kpad already read)
     void handle_wiimote_buttons(uint32_t trigger);
     // Pro Controller input (called from main loop, kpad.pro already read)
     void handle_pro_buttons(uint32_t trigger);
+
+    struct TouchState {
+        bool    active   = false;
+        bool    consumed = false;  // action already dispatched for this touch
+        int16_t start_x  = 0;
+        int16_t start_y  = 0;
+        int16_t cur_x    = 0;
+        int16_t cur_y    = 0;
+    };
+    TouchState touch_;
 
     void kill_connection();   // drop AP/Spirc after background timeout
 
