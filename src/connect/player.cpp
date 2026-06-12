@@ -84,8 +84,10 @@ void Player::run() {
             if (s == 0) s = 1;  // keep non-zero sentinel
             auto *p = static_cast<Player*>(ctx);
             p->background_since_s_.store(s);
-            p->audio_->sweep_cache_now();
-            WHBLogPrint("player: entered background — cache sweep triggered");
+            // Signal the cache-sweep WUPS plugin to run a sweep.
+            FILE *flag = fopen("/vol/external01/spotify_cache/.sweep_now", "w");
+            if (flag) fclose(flag);
+            WHBLogPrint("player: entered background — wrote cache sweep flag");
             return 0;
         }, this, 100);
     ProcUIRegisterCallback(PROCUI_CALLBACK_ACQUIRE,

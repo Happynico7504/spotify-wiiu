@@ -3,6 +3,11 @@ FROM devkitpro/devkitppc:latest
 RUN dkp-pacman -Syu --noconfirm wiiu-dev \
     && dkp-pacman -Sc --noconfirm
 
+# WUPS (Wii U Plugin System) SDK — not in the standard dkp-pacman repo, built from source.
+RUN git clone --depth 1 https://github.com/wiiu-env/WiiUPluginSystem.git /tmp/wups \
+    && cd /tmp/wups && make -j$(nproc) install \
+    && rm -rf /tmp/wups
+
 # Native Rust toolchain + tools needed for setup-tool / bundle Linux builds.
 # Install into /usr/local so the tools are available regardless of HOME,
 # which GitHub Actions overrides inside container jobs.

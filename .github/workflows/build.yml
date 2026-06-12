@@ -22,19 +22,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build
+      - name: Build WUHB
         run: make
+
+      - name: Build cache-sweep plugin
+        run: make -C plugins/cache-sweep
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: spotify-wiiu
-          path: spotify-wiiu.wuhb
+          path: |
+            spotify-wiiu.wuhb
+            plugins/cache-sweep/spotify-cache-sweep.wps
           if-no-files-found: error
 
       - name: Create release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: spotify-wiiu.wuhb
+          files: |
+            spotify-wiiu.wuhb
+            plugins/cache-sweep/spotify-cache-sweep.wps
           fail_on_unmatched_files: true

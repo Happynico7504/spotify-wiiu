@@ -75,9 +75,6 @@ public:
     // Called when the track finishes naturally (not on stop/seek)
     std::function<void()> on_track_end;
 
-    // Wake the cache cleanup thread immediately (e.g. on standby entry).
-    void sweep_cache_now();
-
 private:
     // ── decode thread ────────────────────────────────────────────────────────
     void decode_thread_fn();
@@ -128,7 +125,6 @@ private:
     void cache_cleanup_fn();
     std::thread            cache_thread_;
     std::atomic<bool>      cache_stop_{false};
-    std::atomic<bool>      cache_sweep_now_{false};
     std::atomic<int32_t>   cache_total_bytes_{-1};  // KB; -1 until first sweep
 };
 

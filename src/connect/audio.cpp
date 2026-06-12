@@ -711,18 +711,9 @@ void AudioPipeline::cache_cleanup_fn() {
         WHBLogPrintf("cache: %zu tracks, %.1f MB total",
                      rows.size(), total_bytes / (1024.0 * 1024.0));
 
-        // Sleep 1 hour, waking each second to respond to shutdown or
-        // an early sweep request (e.g. triggered on standby entry).
-        for (int i = 0; i < CACHE_GC_INTERVAL_SEC && !cache_stop_.load(); ++i) {
+        for (int i = 0; i < CACHE_GC_INTERVAL_SEC && !cache_stop_.load(); ++i)
             OSSleepTicks(OSMillisecondsToTicks(1000));
-            if (cache_sweep_now_.exchange(false))
-                break;
-        }
     }
-}
-
-void AudioPipeline::sweep_cache_now() {
-    cache_sweep_now_.store(true);
 }
 
 } // namespace Connect
