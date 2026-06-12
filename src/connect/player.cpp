@@ -167,8 +167,10 @@ void Player::run() {
         display_.render();
 
         VPADRead(VPAD_CHAN_0, &vpad, 1, &verr);
-        if (verr == VPAD_READ_SUCCESS)
+        if (verr == VPAD_READ_SUCCESS) {
             handle_buttons(vpad.trigger);
+            handle_touch(&vpad);
+        }
 
         KPADStatus kpad{};
         KPADError  kerr{};
@@ -617,6 +619,90 @@ void Player::handle_buttons(uint32_t trigger) {
         std::string body = "\xe2\x99\xaa " + track_title_ + " \xe2\x80\x94 " + track_artist_;
         OLV::open_post_applet(body, track_explicit_, track_title_ + " - " + track_artist_, track_id_,
                               (uint32_t)std::max(0, audio_->position_ms()), (uint32_t)track_dur_ms_);
+    }
+}
+
+// ── GamePad touch ─────────────────────────────────────────────────────────────
+//
+// VPADGetTPCalibratedPoint returns physical DRC coordinates (0–853, 0–479).
+// The framebuffer is 1280×720, so we scale up: fx = tx*1280/854, fy = ty*720/480.
+// After scaling, coordinates are directly comparable to Theme:: constants.
+//
+// Touch zones (1280×720 framebuffer space, see theme.h):
+//   Progress bar seek : x 40–1240,  y 600–660  (expanded tap target around BAR_Y=620)
+//   Album art tap     : x 40–400,   y 60–420   → play/pause
+//   Swipe anywhere    : |dx| > 120, |dy| < 90  → next (left) / prev (right)
+//
+// Seek fires continuously while held; swipe and art-tap fire once on release.
+
+void Player::handle_touch(const void *vpad_status_ptr) {
+    const VPADStatus &vpad = *static_cast<const VPADStatus *>(vpad_status_ptr);
+
+    VPADTouchData tp{};
+    // tpFiltered1 reduces resistive-touch noise; VPAD_TP_1280X720 maps directly to framebuffer space
+    VPADGetTPCalibratedPointEx(VPAD_CHAN_0, VPAD_TP_1280X720, &tp, &vpad.tpFiltered1);
+
+    if (!tp.touched) {
+        if (touch_.active && !touch_.consumed && spirc_) {
+            int dx = (int)touch_.cur_x - touch_.start_x;
+            int dy = (int)touch_.cur_y - touch_.start_y;
+
+            // Horizontal swipe → next / prev track
+            if (std::abs(dx) >= 120 && std::abs(dy) < 90) {
+                if (dx < 0)
+                    spirc_->skip(true);   // swipe left → next
+                else
+                    spirc_->skip(false);  // swipe right → prev
+            }
+            // Tap on album art → play/pause
+            else if (touch_.start_x >= 40  && touch_.start_x <= 400 &&
+                     touch_.start_y >= 60  && touch_.start_y <= 420 &&
+                     std::abs(dx) < 30 && std::abs(dy) < 30) {
+                int pos = audio_->position_ms();
+                if (spirc_playing_) {
+                    spirc_playing_ = false;
+                    audio_->pause();
+                    display_.set_progress(pos, track_dur_ms_, false);
+                } else {
+                    spirc_playing_ = true;
+                    audio_->resume();
+                    display_.set_progress(pos, track_dur_ms_, true);
+                }
+                spirc_->notify(spirc_playing_, pos, volume_);
+            }
+        }
+        touch_ = {};
+        return;
+    }
+
+    // Ignore frames with invalid calibration data — garbage coordinates from the
+    // resistive panel can otherwise fire the seek zone and set consumed=true,
+    // silently swallowing the next art-tap or swipe on release.
+    if (tp.validity != VPAD_VALID)
+        return;
+
+    const int fx = (int)tp.x;
+    const int fy = (int)tp.y;
+
+    if (!touch_.active) {
+        touch_.active   = true;
+        touch_.consumed = false;
+        touch_.start_x  = (int16_t)fx;
+        touch_.start_y  = (int16_t)fy;
+    }
+    touch_.cur_x = (int16_t)fx;
+    touch_.cur_y = (int16_t)fy;
+
+    // Progress bar: seek continuously while finger is held on bar
+    if (!touch_.consumed &&
+        fy >= 600 && fy <= 660 &&
+        fx >= 40  && fx <= 1240 &&
+        spirc_ && track_dur_ms_ > 0) {
+        float frac   = float(fx - 40) / 1200.0f;
+        int   pos_ms = int(frac * track_dur_ms_);
+        audio_->seek(pos_ms);
+        spirc_->seek_to(pos_ms);
+        touch_.consumed = true;
     }
 }
 
