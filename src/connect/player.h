@@ -112,8 +112,11 @@ private:
 
     // Serialises credential processing — drops duplicate addUser pushes that
     // arrive while we're mid-handshake (Spotify app often retries quickly).
-    std::mutex  connect_mu_;
-    std::thread connect_thread_;
+    std::mutex          connect_mu_;
+    std::thread         connect_thread_;
+    // Set true in on_credentials before ap_->disconnect() so on_disconnect
+    // knows not to reset the display (we're about to bring up a new session).
+    std::atomic<bool>   reconnecting_{false};
 };
 
 } // namespace Connect

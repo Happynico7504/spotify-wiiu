@@ -169,36 +169,9 @@ static std::vector<uint16_t> utf8_to_utf16(const std::string &utf8, uint32_t max
 // ── Public API ────────────────────────────────────────────────────────────────
 
 bool init() {
-    // Initialize the full stack in dependency order, matching the sequence used
-    // by the GetMyMiiverseToken Roséverse reference tool.
-    // Acquire the Miiverse service token.
-    // Inkay-Roseverse intercepts AcquireIndependentServiceToken for OLV
-    // client ID "87cd32617f1985439ea608c2746e4610" and returns a Roséverse token.
-    {
-        using FnAIST = int32_t (*)(char *, const char *, uint32_t, bool, bool);
-        FnAIST fn_aist = nullptr;
-        OSDynLoad_Module act_handle = nullptr;
-        if (OSDynLoad_Acquire("nn_act.rpl", &act_handle) == OS_DYNLOAD_OK) {
-            OSDynLoad_FindExport(act_handle, OS_DYNLOAD_EXPORT_FUNC,
-                "AcquireIndependentServiceToken__Q2_2nn3actFPcPCcUibT4",
-                reinterpret_cast<void **>(&fn_aist));
-            OSDynLoad_Release(act_handle);
-        }
-        if (!fn_aist) {
-            WHBLogPrint("olv: AIST symbol not found");
-            return false;
-        }
-        char token[513] = {};
-        int32_t rc = fn_aist(token, "87cd32617f1985439ea608c2746e4610",
-                             3600, false, false);
-        WHBLogPrintf("olv: AIST → 0x%08X", (uint32_t)rc);
-        if (rc != 0 || token[0] == '\0') {
-            WHBLogPrint("olv: token acquisition failed");
-            return false;
-        }
-    }
-
     // Load nn_olv.rpl.
+    // Inkay-Roséverse intercepts AcquireIndependentServiceToken internally during
+    // nn_olv::Initialize — no manual AIST pre-call needed.
     if (OSDynLoad_Acquire("nn_olv.rpl", &s_handle) != OS_DYNLOAD_OK) {
         WHBLogPrint("olv: nn_olv.rpl acquire failed");
         return false;

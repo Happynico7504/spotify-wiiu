@@ -320,7 +320,9 @@ void Player::on_credentials(Discovery::Credentials creds) {
     // Clean up any previous connection (join defunct recv thread, close fd).
     // ap_ may be null if kill_connection() already reset it (background timeout).
     if (spirc_) { spirc_->stop(); spirc_.reset(); }
+    reconnecting_.store(true);
     if (ap_) ap_->disconnect();
+    reconnecting_.store(false);
     ap_ = std::make_unique<AP>();
 
     AP::Callbacks acb;
@@ -336,7 +338,12 @@ void Player::on_credentials(Discovery::Credentials creds) {
         state_.store(State::WaitingForUser);
         audio_->stop();
         spirc_playing_ = false;
-        display_.set_waiting();
+        // Don't reset the display if on_credentials triggered this disconnect
+        // on its way to setting up a new session — the now-playing screen may
+        // already be showing from a cluster update the old Spirc processed just
+        // before we replaced it, and flashing "waiting" here is the visible glitch.
+        if (!reconnecting_.load())
+            display_.set_waiting();
     };
 
     if (!ap_->connect(creds, std::move(acb))) {
