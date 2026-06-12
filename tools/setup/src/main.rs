@@ -236,12 +236,18 @@ fn pick_aroma_environment(sd: &Path) -> Option<PathBuf> {
     }
 }
 
-// ── WUHB download ─────────────────────────────────────────────────────────────
+// ── Release download ──────────────────────────────────────────────────────────
 
 const GITHUB_API: &str =
     "https://api.github.com/repos/Happynico7504/spotify-wiiu/releases/latest";
 
-fn download_wuhb() -> Result<(PathBuf, String), Box<dyn std::error::Error>> {
+struct ReleaseAssets {
+    tag:  String,
+    wuhb: PathBuf,              // spotify-wiiu.wuhb
+    wps:  Option<PathBuf>,      // spotify-cache-sweep.wps (optional — may not exist yet)
+}
+
+fn download_release_assets() -> Result<ReleaseAssets, Box<dyn std::error::Error>> {
     info("Fetching latest release info...");
     let resp = ureq::get(GITHUB_API)
         .set("User-Agent", "spotify-wiiu-setup")
@@ -250,29 +256,42 @@ fn download_wuhb() -> Result<(PathBuf, String), Box<dyn std::error::Error>> {
 
     let json: Value = serde_json::from_str(&resp.into_string()?)?;
     let tag = json["tag_name"].as_str().unwrap_or("?").to_string();
-
-    let url = json["assets"]
-        .as_array()
-        .and_then(|a| a.iter().find(|x| x["name"].as_str() == Some("spotify-wiiu.wuhb")))
-        .and_then(|x| x["browser_download_url"].as_str())
-        .ok_or("spotify-wiiu.wuhb asset not found in latest release")?
-        .to_string();
-
     ok(&format!("Latest release: {tag}"));
-    info("Downloading spotify-wiiu.wuhb...");
 
-    let resp = ureq::get(&url)
-        .set("User-Agent", "spotify-wiiu-setup")
-        .call()?;
+    let assets = json["assets"].as_array().ok_or("no assets in release")?;
 
-    let mut bytes = Vec::new();
-    resp.into_reader().read_to_end(&mut bytes)?;
+    let find_url = |name: &str| -> Option<String> {
+        assets.iter()
+            .find(|x| x["name"].as_str() == Some(name))
+            .and_then(|x| x["browser_download_url"].as_str())
+            .map(|s| s.to_string())
+    };
 
-    ok(&format!("Downloaded {} KB", bytes.len() / 1024));
+    let download = |name: &str, url: &str| -> Result<PathBuf, Box<dyn std::error::Error>> {
+        info(&format!("Downloading {name}..."));
+        let resp = ureq::get(url).set("User-Agent", "spotify-wiiu-setup").call()?;
+        let mut bytes = Vec::new();
+        resp.into_reader().read_to_end(&mut bytes)?;
+        ok(&format!("  {name}: {} KB", bytes.len() / 1024));
+        let tmp = std::env::temp_dir().join(name);
+        fs::write(&tmp, &bytes)?;
+        Ok(tmp)
+    };
 
-    let tmp = std::env::temp_dir().join("spotify-wiiu.wuhb");
-    fs::write(&tmp, &bytes)?;
-    Ok((tmp, tag))
+    let wuhb_url = find_url("spotify-wiiu.wuhb")
+        .ok_or("spotify-wiiu.wuhb not found in latest release")?;
+    let wuhb = download("spotify-wiiu.wuhb", &wuhb_url)?;
+
+    let wps = if let Some(url) = find_url("spotify-cache-sweep.wps") {
+        match download("spotify-cache-sweep.wps", &url) {
+            Ok(p)  => Some(p),
+            Err(e) => { warn(&format!("Plugin download failed: {e}")); None }
+        }
+    } else {
+        None
+    };
+
+    Ok(ReleaseAssets { tag, wuhb, wps })
 }
 
 // ── Subprocess reader thread ──────────────────────────────────────────────────
@@ -417,31 +436,62 @@ fn main() {
         }
     }
 
-    // Step 5 ── download & install wuhb ───────────────────────────────────────
+    // Step 5 ── download & install wuhb + plugin ─────────────────────────────
     step(5, "Installing Spotify Wii U");
 
-    let answer = prompt("  Download and install the latest spotify-wiiu.wuhb? [Y/n]: ");
+    let answer = prompt("  Download and install the latest app and cache-sweep plugin? [Y/n]: ");
     if answer.is_empty() || answer.eq_ignore_ascii_case("y") {
-        match download_wuhb() {
-            Ok((wuhb, _tag)) => {
+        match download_release_assets() {
+            Ok(assets) => {
+                info(&format!("Installing version {}", assets.tag));
                 match find_sd_card() {
                     Some(sd) => {
-                        if pick_aroma_environment(&sd).is_none() {
+                        let aroma_env = pick_aroma_environment(&sd);
+                        if aroma_env.is_none() {
                             warn("Aroma does not appear to be installed on this SD card.");
                             warn("Install it first: https://wiiu.hacks.guide/");
                         }
+
+                        // Install WUHB
                         let app_dir = wiiu_dir(&sd).join("apps").join("spotify-wiiu");
                         if let Err(e) = fs::create_dir_all(&app_dir) {
                             warn(&format!("Could not create app directory: {e}"));
                         }
                         let dest = app_dir.join("spotify-wiiu.wuhb");
-                        match fs::copy(&wuhb, &dest) {
-                            Ok(_) => ok(&format!("Installed to {}", dest.display())),
+                        match fs::copy(&assets.wuhb, &dest) {
+                            Ok(_) => ok(&format!("App installed to {}", dest.display())),
                             Err(e) => {
-                                warn(&format!("Copy failed: {e}"));
+                                warn(&format!("WUHB copy failed: {e}"));
                                 info(&format!(
                                     "Copy manually:  {}  →  SD:/wiiu/apps/spotify-wiiu/spotify-wiiu.wuhb",
-                                    wuhb.display()
+                                    assets.wuhb.display()
+                                ));
+                            }
+                        }
+
+                        // Install cache-sweep plugin into the Aroma modules/plugins/ dir
+                        if let Some(wps) = &assets.wps {
+                            if let Some(env) = &aroma_env {
+                                let plugins_dir = env.join("modules").join("plugins");
+                                if let Err(e) = fs::create_dir_all(&plugins_dir) {
+                                    warn(&format!("Could not create plugins directory: {e}"));
+                                }
+                                let dest = plugins_dir.join("spotify-cache-sweep.wps");
+                                match fs::copy(wps, &dest) {
+                                    Ok(_) => ok(&format!("Plugin installed to {}", dest.display())),
+                                    Err(e) => {
+                                        warn(&format!("Plugin copy failed: {e}"));
+                                        info(&format!(
+                                            "Copy manually:  {}  →  SD:/wiiu/environments/<env>/modules/plugins/spotify-cache-sweep.wps",
+                                            wps.display()
+                                        ));
+                                    }
+                                }
+                            } else {
+                                warn("No Aroma environment found — cannot install plugin automatically.");
+                                info(&format!(
+                                    "Copy manually:  {}  →  SD:/wiiu/environments/<env>/modules/plugins/spotify-cache-sweep.wps",
+                                    wps.display()
                                 ));
                             }
                         }
@@ -450,8 +500,14 @@ fn main() {
                         warn("No SD card detected.");
                         info(&format!(
                             "Copy manually:  {}  →  SD:/wiiu/apps/spotify-wiiu/spotify-wiiu.wuhb",
-                            wuhb.display()
+                            assets.wuhb.display()
                         ));
+                        if let Some(wps) = &assets.wps {
+                            info(&format!(
+                                "Copy manually:  {}  →  SD:/wiiu/environments/<env>/modules/plugins/spotify-cache-sweep.wps",
+                                wps.display()
+                            ));
+                        }
                     }
                 }
             }
