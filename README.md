@@ -95,7 +95,7 @@ chmod +x librespot spotify-wiiu-setup
 spotify-wiiu-setup.exe
 ```
 
-The tool launches librespot, waits for you to select **"wii-u-setup"** in any Spotify app, converts the credentials, and asks whether to download the app and the cache-sweep plugin. All files are saved to an `sd-files/` folder next to the setup tool — if your SD card is mounted, the tool copies them to the right locations automatically.
+The tool launches librespot, waits for you to select **"wii-u-setup"** in any Spotify app, converts the credentials, and asks whether to download the app and the cache-sweep plugin. All files are saved to an `sd-files/` folder next to the setup tool — if your SD card is mounted **and Aroma is installed on it**, the tool copies everything to the right locations automatically. If Aroma is not detected it skips the copy and prints the paths for you to copy manually.
 
 #### Manual — power users
 
@@ -148,7 +148,7 @@ This writes `spotify_saved_creds.bin` in the current directory.
 
 ### 2. Copy to SD card
 
-The setup tool saves all files to `sd-files/` next to itself and copies them automatically if your SD card is mounted. If you need to copy manually:
+The setup tool copies files automatically when it detects a mounted SD card with Aroma installed. If you need to copy manually:
 
 | File | SD card destination |
 |------|-------------------|
@@ -174,6 +174,20 @@ Once installed, its sweep interval (default: 60 minutes) and enable/disable togg
 2. Open the **Aroma Homebrew Launcher**
 3. Select **Spotify Wii U**
 4. On any Spotify app, open the device list and select **"Wii U"**
+
+## Troubleshooting / reporting a bug
+
+Every time Spotify Wii U runs it writes a full log to:
+
+```
+SD:/spotify_log.txt
+```
+
+The file is overwritten on each launch and flushed after every line, so it contains a complete record of the session even if the app crashed. If something goes wrong:
+
+1. Leave the SD card in the Wii U until the app exits or crashes
+2. Copy `spotify_log.txt` from the root of the SD card to your PC
+3. [Open a GitHub issue](../../issues/new/choose) and paste the log — the bug report template will guide you through the rest
 
 ## Building from source
 
