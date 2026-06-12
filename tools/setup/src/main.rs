@@ -121,32 +121,38 @@ fn convert(creds_json: &Path, out: &Path) -> Result<(), Box<dyn std::error::Erro
 
 // ── SD card detection ─────────────────────────────────────────────────────────
 
+// Returns true if `root` looks like a Wii U SD card (has wiiu/ or WIIU/).
+fn has_wiiu_dir(root: &Path) -> bool {
+    root.join("wiiu").exists() || root.join("WIIU").exists()
+}
+
 #[cfg(target_os = "windows")]
 fn find_sd_card() -> Option<PathBuf> {
-    let mut fallback = None;
+    // C: is always the system drive — skip it.
+    // Prefer a drive that has both wiiu/ and an Aroma environment.
+    // Fall back to a drive that has wiiu/ but no Aroma (still a Wii U SD card,
+    // just without Aroma installed yet).
+    let mut wiiu_only = None;
     for letter in b'A'..=b'Z' {
         if letter == b'C' { continue; }
         let root = PathBuf::from(format!("{}:\\", letter as char));
-        if !root.exists() { continue; }
-        if root.join("wiiu").exists() || root.join("WIIU").exists() {
-            return Some(root);
-        }
-        if fallback.is_none() { fallback = Some(root); }
+        if !has_wiiu_dir(&root) { continue; }
+        if !find_aroma_environments(&root).is_empty() { return Some(root); }
+        if wiiu_only.is_none() { wiiu_only = Some(root); }
     }
-    fallback
+    wiiu_only
 }
 
 #[cfg(target_os = "macos")]
 fn find_sd_card() -> Option<PathBuf> {
-    let mut fallback = None;
+    let mut wiiu_only = None;
     for entry in fs::read_dir("/Volumes").ok()?.flatten() {
         let p = entry.path();
-        if !p.is_dir() { continue; }
-        if p.join("wiiu").exists() || p.join("WIIU").exists() { return Some(p); }
-        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if name != "Macintosh HD" && fallback.is_none() { fallback = Some(p); }
+        if !p.is_dir() || !has_wiiu_dir(&p) { continue; }
+        if !find_aroma_environments(&p).is_empty() { return Some(p); }
+        if wiiu_only.is_none() { wiiu_only = Some(p); }
     }
-    fallback
+    wiiu_only
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -164,16 +170,12 @@ fn find_sd_card() -> Option<PathBuf> {
         .flatten()
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.is_dir())
+        .filter(|p| p.is_dir() && has_wiiu_dir(p))
         .collect();
-
-    // Prefer a volume that already has wiiu/
-    if let Some(p) = candidates.iter().find(|p| {
-        p.join("wiiu").exists() || p.join("WIIU").exists()
-    }) {
-        return Some(p.clone());
-    }
-    candidates.into_iter().next()
+    candidates.iter()
+        .find(|p| !find_aroma_environments(p).is_empty())
+        .or_else(|| candidates.first())
+        .cloned()
 }
 
 // ── Aroma detection ───────────────────────────────────────────────────────────
@@ -446,15 +448,20 @@ fn main() {
             info(&format!("Detected: {}", sd.display()));
             if pick_aroma_environment(&sd).is_none() {
                 warn("Aroma does not appear to be installed on this SD card.");
-                warn("Install it first: https://wiiu.hacks.guide/");
-            }
-            let answer = prompt("  Copy spotify_saved_creds.bin to SD card? [Y/n]: ");
-            if answer.is_empty() || answer.eq_ignore_ascii_case("y") {
-                let dest = sd.join("spotify_saved_creds.bin");
-                fs::copy(&out, &dest).unwrap_or_else(|e| fail(&format!("Copy failed: {e}")));
-                ok(&format!("Copied to {}", dest.display()));
+                warn("Install Aroma first: https://wiiu.hacks.guide/");
+                info(&format!(
+                    "Copy manually once Aroma is set up:  {}  →  SD:/spotify_saved_creds.bin",
+                    out_abs.display()
+                ));
             } else {
-                info("Skipped.");
+                let answer = prompt("  Copy spotify_saved_creds.bin to SD card? [Y/n]: ");
+                if answer.is_empty() || answer.eq_ignore_ascii_case("y") {
+                    let dest = sd.join("spotify_saved_creds.bin");
+                    fs::copy(&out, &dest).unwrap_or_else(|e| fail(&format!("Copy failed: {e}")));
+                    ok(&format!("Copied to {}", dest.display()));
+                } else {
+                    info("Skipped.");
+                }
             }
         }
         None => {
@@ -469,66 +476,69 @@ fn main() {
     // Step 5 ── download & install wuhb + plugin ─────────────────────────────
     step(5, "Installing Spotify Wii U");
 
-    let install_app = {
-        let a = prompt("  Download and install the latest app? [Y/n]: ");
-        a.is_empty() || a.eq_ignore_ascii_case("y")
-    };
-    let install_plugin = {
-        let a = prompt("  Download and install the cache-sweep plugin (optional)? [Y/n]: ");
-        a.is_empty() || a.eq_ignore_ascii_case("y")
-    };
+    // Check for a Wii U SD card with Aroma before asking anything.
+    // This app only targets Aroma, so there is nothing to install without it.
+    let install_sd  = find_sd_card();
+    let install_env = install_sd.as_deref().and_then(pick_aroma_environment);
 
-    if install_app || install_plugin {
-        match download_release_assets(install_plugin, &sd_dir) {
-            Ok(assets) => {
-                info(&format!("Installing version {}", assets.tag));
-                match find_sd_card() {
-                    Some(sd) => {
-                        let aroma_env = pick_aroma_environment(&sd);
-                        if aroma_env.is_none() {
-                            warn("Aroma does not appear to be installed on this SD card.");
-                            warn("Install it first: https://wiiu.hacks.guide/");
+    if install_env.is_none() {
+        match &install_sd {
+            Some(sd) => {
+                warn(&format!("Aroma not found on {} — skipping install.", sd.display()));
+                warn("Install Aroma first: https://wiiu.hacks.guide/");
+            }
+            None => {
+                warn("No Wii U SD card detected — skipping install.");
+                warn("Insert your SD card (with Aroma) and re-run, or grab the release manually:");
+                info("  https://github.com/Happynico7504/spotify-wiiu/releases/latest");
+            }
+        }
+    } else {
+        let sd        = install_sd.as_deref().unwrap();
+        let aroma_env = install_env.as_deref().unwrap();
+
+        let install_app = {
+            let a = prompt("  Download and install the latest app? [Y/n]: ");
+            a.is_empty() || a.eq_ignore_ascii_case("y")
+        };
+        let install_plugin = {
+            let a = prompt("  Download and install the cache-sweep plugin (optional)? [Y/n]: ");
+            a.is_empty() || a.eq_ignore_ascii_case("y")
+        };
+
+        if install_app || install_plugin {
+            match download_release_assets(install_plugin, &sd_dir) {
+                Ok(assets) => {
+                    info(&format!("Installing version {}", assets.tag));
+
+                    if install_app {
+                        let app_dir = wiiu_dir(sd).join("apps").join("spotify-wiiu");
+                        if let Err(e) = fs::create_dir_all(&app_dir) {
+                            warn(&format!("Could not create app directory: {e}"));
                         }
-
-                        // Install WUHB
-                        if install_app {
-                            let app_dir = wiiu_dir(&sd).join("apps").join("spotify-wiiu");
-                            if let Err(e) = fs::create_dir_all(&app_dir) {
-                                warn(&format!("Could not create app directory: {e}"));
-                            }
-                            let dest = app_dir.join("spotify-wiiu.wuhb");
-                            match fs::copy(&assets.wuhb, &dest) {
-                                Ok(_) => ok(&format!("App installed to {}", dest.display())),
-                                Err(e) => {
-                                    warn(&format!("WUHB copy failed: {e}"));
-                                    info(&format!(
-                                        "Copy manually:  {}  →  SD:/wiiu/apps/spotify-wiiu/spotify-wiiu.wuhb",
-                                        assets.wuhb.display()
-                                    ));
-                                }
+                        let dest = app_dir.join("spotify-wiiu.wuhb");
+                        match fs::copy(&assets.wuhb, &dest) {
+                            Ok(_) => ok(&format!("App installed to {}", dest.display())),
+                            Err(e) => {
+                                warn(&format!("WUHB copy failed: {e}"));
+                                info(&format!(
+                                    "Copy manually:  {}  →  SD:/wiiu/apps/spotify-wiiu/spotify-wiiu.wuhb",
+                                    assets.wuhb.display()
+                                ));
                             }
                         }
+                    }
 
-                        // Install cache-sweep plugin into the Aroma plugins/ dir
-                        if let Some(wps) = &assets.wps {
-                            if let Some(env) = &aroma_env {
-                                let plugins_dir = env.join("plugins");
-                                if let Err(e) = fs::create_dir_all(&plugins_dir) {
-                                    warn(&format!("Could not create plugins directory: {e}"));
-                                }
-                                let dest = plugins_dir.join("spotify-cache-sweep.wps");
-                                match fs::copy(wps, &dest) {
-                                    Ok(_) => ok(&format!("Plugin installed to {}", dest.display())),
-                                    Err(e) => {
-                                        warn(&format!("Plugin copy failed: {e}"));
-                                        info(&format!(
-                                            "Copy manually:  {}  →  SD:/wiiu/environments/<env>/plugins/spotify-cache-sweep.wps",
-                                            wps.display()
-                                        ));
-                                    }
-                                }
-                            } else {
-                                warn("No Aroma environment found — cannot install plugin automatically.");
+                    if let Some(wps) = &assets.wps {
+                        let plugins_dir = aroma_env.join("plugins");
+                        if let Err(e) = fs::create_dir_all(&plugins_dir) {
+                            warn(&format!("Could not create plugins directory: {e}"));
+                        }
+                        let dest = plugins_dir.join("spotify-cache-sweep.wps");
+                        match fs::copy(wps, &dest) {
+                            Ok(_) => ok(&format!("Plugin installed to {}", dest.display())),
+                            Err(e) => {
+                                warn(&format!("Plugin copy failed: {e}"));
                                 info(&format!(
                                     "Copy manually:  {}  →  SD:/wiiu/environments/<env>/plugins/spotify-cache-sweep.wps",
                                     wps.display()
@@ -536,30 +546,15 @@ fn main() {
                             }
                         }
                     }
-                    None => {
-                        warn("No SD card detected.");
-                        if install_app {
-                            info(&format!(
-                                "Copy manually:  {}  →  SD:/wiiu/apps/spotify-wiiu/spotify-wiiu.wuhb",
-                                assets.wuhb.display()
-                            ));
-                        }
-                        if let Some(wps) = &assets.wps {
-                            info(&format!(
-                                "Copy manually:  {}  →  SD:/wiiu/environments/<env>/plugins/spotify-cache-sweep.wps",
-                                wps.display()
-                            ));
-                        }
-                    }
+                }
+                Err(e) => {
+                    warn(&format!("Download failed: {e}"));
+                    info("Get it from: https://github.com/Happynico7504/spotify-wiiu/releases/latest");
                 }
             }
-            Err(e) => {
-                warn(&format!("Download failed: {e}"));
-                info("Get it from: https://github.com/Happynico7504/spotify-wiiu/releases/latest");
-            }
+        } else {
+            info("Skipped.");
         }
-    } else {
-        info("Skipped.");
     }
 
     // Done ─────────────────────────────────────────────────────────────────
