@@ -21,8 +21,16 @@ fn ok(msg: &str)   { println!("  ✓ {msg}"); }
 fn info(msg: &str) { println!("  · {msg}"); }
 fn warn(msg: &str) { println!("  ! {msg}"); }
 
+fn wait_for_enter() {
+    println!("  Press Enter to close...");
+    io::stdout().flush().ok();
+    let mut buf = String::new();
+    io::stdin().read_line(&mut buf).ok();
+}
+
 fn fail(msg: &str) -> ! {
     eprintln!("\n  ERROR: {msg}");
+    wait_for_enter();
     std::process::exit(1);
 }
 
@@ -318,4 +326,5 @@ fn main() {
     println!();
     sep('═');
     println!();
+    wait_for_enter();
 }
