@@ -148,15 +148,19 @@ chmod +x librespot spotify-wiiu-setup
 
 <span class="cmt"># Windows</span>
 spotify-wiiu-setup.exe</code></pre>
-              <p>The tool authenticates with Spotify, converts credentials, copies them to your SD card, and downloads and installs the latest <code>spotify-wiiu.wuhb</code> and <code>spotify-cache-sweep.wps</code> — all in one step.</p>
+              <p>The tool authenticates with Spotify, converts credentials, and asks whether to download the app and the cache-sweep plugin separately. All files are saved to an <code>sd-files/</code> folder next to the setup tool — if your SD card is mounted the tool copies them automatically.</p>
             </div>
           </div>
           <div class="step">
             <div class="step-num">3</div>
             <div class="step-body">
               <h3>Copy to SD card</h3>
-              <p>The setup tool handles this automatically. If you skipped it, copy manually:</p>
-              <pre><code>SD:/spotify_saved_creds.bin</code></pre>
+              <p>The setup tool handles this automatically. If you skipped it, copy from <code>sd-files/</code> manually:</p>
+              <table class="dl-table">
+                <tr><td><code>sd-files/spotify_saved_creds.bin</code></td><td><code>SD:/spotify_saved_creds.bin</code></td></tr>
+                <tr><td><code>sd-files/spotify-wiiu.wuhb</code></td><td><code>SD:/wiiu/apps/spotify-wiiu/spotify-wiiu.wuhb</code></td></tr>
+                <tr><td><code>sd-files/spotify-cache-sweep.wps</code></td><td><code>SD:/wiiu/environments/&lt;env&gt;/plugins/spotify-cache-sweep.wps</code></td></tr>
+              </table>
             </div>
           </div>
           <div class="step">
@@ -299,9 +303,7 @@ python3 tools/make_creds.py /tmp/librespot-cache/credentials.json</code></pre>
           <h3>Building from source</h3>
           <p>Prerequisites:</p>
           <ul>
-            <li><a href="https://devkitpro.org/wiki/Getting_Started" target="_blank">devkitPro</a> with devkitPPC</li>
-            <li>Wii U portlibs: <code>dkp-pacman -S wut wiiu-sdl2 wiiu-sdl2_ttf wiiu-curl wiiu-mbedtls</code></li>
-            <li>Tremor (libvorbisidec) — portlib or auto-built from vendor source</li>
+            <li><a href="https://devkitpro.org/wiki/Getting_Started" target="_blank">devkitPro</a> with the Wii U dev package: <code>dkp-pacman -S wiiu-dev</code></li>
             <li>For the plugin: <a href="https://github.com/wiiu-env/WiiUPluginSystem" target="_blank">WiiUPluginSystem</a> (WUPS SDK) built from source</li>
           </ul>
           <pre><code>git clone https://github.com/Happynico7504/spotify-wiiu
