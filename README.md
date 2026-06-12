@@ -16,6 +16,7 @@ An unofficial [Spotify Connect](https://www.spotify.com/connect/) client for the
 - **Spectrum visualizer**
 - **GamePad touchscreen** — tap album art to play/pause, swipe left/right to skip, drag the progress bar to seek
 - **Multi-controller support** — GamePad, Wii Remote, and Pro Controller all work
+- **Roséverse integration** — shows community posts for the current track; `Stick R` opens the post directly in Miiverse, `Stick L` lets you post a reaction
 - **Cache-sweep plugin** — optional Aroma plugin that automatically purges stale audio cache at boot and on a configurable interval, keeping your SD card tidy
 
 ## Controls
@@ -94,7 +95,7 @@ chmod +x librespot spotify-wiiu-setup
 spotify-wiiu-setup.exe
 ```
 
-The tool launches librespot, waits for you to select **"wii-u-setup"** in any Spotify app, converts the credentials, copies them to your SD card, and downloads and installs the latest `spotify-wiiu.wuhb` and `spotify-cache-sweep.wps` — all in one step.
+The tool launches librespot, waits for you to select **"wii-u-setup"** in any Spotify app, converts the credentials, and asks whether to download the app and the cache-sweep plugin. All files are saved to an `sd-files/` folder next to the setup tool — if your SD card is mounted, the tool copies them to the right locations automatically.
 
 #### Manual — power users
 
@@ -147,11 +148,13 @@ This writes `spotify_saved_creds.bin` in the current directory.
 
 ### 2. Copy to SD card
 
-Copy `spotify_saved_creds.bin` to the **root** of your Wii U SD card:
+The setup tool saves all files to `sd-files/` next to itself and copies them automatically if your SD card is mounted. If you need to copy manually:
 
-```
-SD:/spotify_saved_creds.bin
-```
+| File | SD card destination |
+|------|-------------------|
+| `sd-files/spotify_saved_creds.bin` | `SD:/spotify_saved_creds.bin` |
+| `sd-files/spotify-wiiu.wuhb` | `SD:/wiiu/apps/spotify-wiiu/spotify-wiiu.wuhb` |
+| `sd-files/spotify-cache-sweep.wps` | `SD:/wiiu/environments/<env>/plugins/spotify-cache-sweep.wps` |
 
 > The setup tool can do this step automatically if your SD card is mounted.
 
@@ -176,11 +179,10 @@ Once installed, its sweep interval (default: 60 minutes) and enable/disable togg
 
 ### Prerequisites
 
-- [devkitPro](https://devkitpro.org/wiki/Getting_Started) with devkitPPC and the following portlibs:
+- [devkitPro](https://devkitpro.org/wiki/Getting_Started) with the Wii U dev package:
   ```sh
-  dkp-pacman -S wut wiiu-sdl2 wiiu-sdl2_ttf wiiu-curl wiiu-mbedtls
+  dkp-pacman -S wiiu-dev
   ```
-- [Tremor](https://xiph.org/tremor/) (libvorbisidec) — either as a devkitPro portlib or the Makefile will build it from `vendor/tremor/`
 - **For the cache-sweep plugin only:** [WiiUPluginSystem](https://github.com/wiiu-env/WiiUPluginSystem) (WUPS SDK) — not in dkp-pacman, build from source:
   ```sh
   git clone --depth 1 https://github.com/wiiu-env/WiiUPluginSystem.git /tmp/wups

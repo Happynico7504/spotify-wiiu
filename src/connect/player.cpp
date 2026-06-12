@@ -377,6 +377,17 @@ void Player::on_credentials(Discovery::Credentials creds) {
     };
     scb.on_seek         = [this](int pos) { on_seek(pos); };
     scb.on_volume       = [this](int vol) { on_volume(vol); };
+    scb.on_became_inactive = [this] {
+        audio_->stop();
+        spirc_playing_ = false;
+        {
+            std::lock_guard<std::mutex> lk(olv_mu_);
+            olv_posts_.clear();
+            olv_post_idx_ = SIZE_MAX;
+        }
+        display_.set_olv_post(nullptr);
+        display_.set_waiting();
+    };
     scb.on_track_changed = [this](const std::string &t,
                                   const std::string &a,
                                   const std::string &u,
@@ -610,11 +621,20 @@ void Player::handle_buttons(uint32_t trigger) {
         spirc_->notify(spirc_playing_, pos, volume_);
     }
 
-    // ── OLV: StickR = open current post in Roséverse overlay ────────────────
+    // ── OLV: StickR = open current post (or community) in Roséverse ──────────
     if ((trigger & VPAD_BUTTON_STICK_R) && OLV::is_available()) {
-        OLV::open_overlay();
+        std::string post_id;
+        bool has_post = false;
+        {
+            std::lock_guard<std::mutex> lk(olv_mu_);
+            if (olv_post_idx_ != SIZE_MAX && olv_post_idx_ < olv_posts_.size()) {
+                post_id  = olv_posts_[olv_post_idx_].post_id;
+                has_post = true;
+            }
+        }
+        if (has_post) OLV::open_overlay(post_id);
     }
-    if ((trigger & VPAD_BUTTON_STICK_L) && OLV::is_available()) {
+    if ((trigger & VPAD_BUTTON_STICK_L) && OLV::is_available() && spirc_playing_) {
         // ♪ Title — Artist  (UTF-8: ♪ = \xe2\x99\xaa, — = \xe2\x80\x94)
         std::string body = "\xe2\x99\xaa " + track_title_ + " \xe2\x80\x94 " + track_artist_;
         OLV::open_post_applet(body, track_explicit_, track_title_ + " - " + track_artist_, track_id_,
@@ -808,9 +828,18 @@ void Player::handle_pro_buttons(uint32_t trigger) {
     if (trigger & WPAD_PRO_BUTTON_B)
         display_.toggle_controls();
     if ((trigger & WPAD_PRO_BUTTON_STICK_R) && OLV::is_available()) {
-        OLV::open_overlay();
+        std::string post_id;
+        bool has_post = false;
+        {
+            std::lock_guard<std::mutex> lk(olv_mu_);
+            if (olv_post_idx_ != SIZE_MAX && olv_post_idx_ < olv_posts_.size()) {
+                post_id  = olv_posts_[olv_post_idx_].post_id;
+                has_post = true;
+            }
+        }
+        if (has_post) OLV::open_overlay(post_id);
     }
-    if ((trigger & WPAD_PRO_BUTTON_STICK_L) && OLV::is_available()) {
+    if ((trigger & WPAD_PRO_BUTTON_STICK_L) && OLV::is_available() && spirc_playing_) {
         std::string body = "\xe2\x99\xaa " + track_title_ + " \xe2\x80\x94 " + track_artist_;
         OLV::open_post_applet(body, track_explicit_, track_title_ + " - " + track_artist_, track_id_,
                               (uint32_t)std::max(0, audio_->position_ms()), (uint32_t)track_dur_ms_);

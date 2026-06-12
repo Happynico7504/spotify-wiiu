@@ -591,13 +591,28 @@ int AudioPipeline::position_ms() const {
 //
 // Runs on CPU0, sweeps /vol/external01/spotify_cache once per hour.
 // Deletes chunk files (CACHE_BASE/{file_id_hex}/{chunk_idx}) whose mtime is
-// older than 3 days, then removes any track directories that are now empty.
+// older than the configured max age (default 3 days), then removes empty track directories.
 // FAT32 on the SD card reports write-time in st_mtime with 2-second precision.
 
 // Same path as CACHE_BASE above — reuse directly so there's one source of truth.
-#define CACHE_GC_BASE CACHE_BASE
-static constexpr time_t      CACHE_MAX_AGE = 3 * 24 * 60 * 60;  // 3 days
-static constexpr int         CACHE_GC_INTERVAL_SEC = 3600;       // 1 hour
+#define CACHE_GC_BASE    CACHE_BASE
+#define CACHE_CONFIG     CACHE_BASE "/.plugin_config"
+static constexpr int    CACHE_GC_INTERVAL_SEC = 3600;  // 1 hour
+
+// Read max_age_days from the plugin config file; fall back to 3 if absent.
+static time_t read_max_age_secs() {
+    int max_age_days = 3;
+    FILE *f = fopen(CACHE_CONFIG, "r");
+    if (f) {
+        int enabled = 1, interval = 60;
+        fscanf(f, "enabled=%d\ninterval_min=%d\nmax_age_days=%d",
+               &enabled, &interval, &max_age_days);
+        fclose(f);
+        if (max_age_days < 1)  max_age_days = 1;
+        if (max_age_days > 30) max_age_days = 30;
+    }
+    return (time_t)max_age_days * 24 * 60 * 60;
+}
 
 // One row written to cache-state.csv per kept track.
 struct CacheRow {
@@ -616,7 +631,7 @@ void AudioPipeline::cache_cleanup_fn() {
         OSSleepTicks(OSMillisecondsToTicks(1000));
 
     while (!cache_stop_.load()) {
-        time_t cutoff = time(nullptr) - CACHE_MAX_AGE;
+        time_t cutoff = time(nullptr) - read_max_age_secs();
         int evicted_tracks = 0, evicted_chunks = 0;
 
         std::vector<CacheRow> rows;
@@ -706,7 +721,7 @@ void AudioPipeline::cache_cleanup_fn() {
         cache_total_bytes_.store((int32_t)(total_bytes / 1024));
 
         if (evicted_tracks)
-            WHBLogPrintf("cache: evicted %d tracks (%d chunks) not played in 3 days",
+            WHBLogPrintf("cache: evicted %d tracks (%d chunks) outside max age",
                          evicted_tracks, evicted_chunks);
         WHBLogPrintf("cache: %zu tracks, %.1f MB total",
                      rows.size(), total_bytes / (1024.0 * 1024.0));

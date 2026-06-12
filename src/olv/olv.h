@@ -15,6 +15,7 @@ static constexpr const char *FEELING_STR[] = {
 struct Post {
     std::string body;
     std::string screen_name;
+    std::string post_id;      // nn::olv post identifier; empty if unavailable
     int         feeling;      // 0–5
     uint32_t    position_ms;  // track position when posted; 0 = no metadata
     uint32_t    duration_ms;  // track duration at post time;  0 = no metadata
@@ -45,7 +46,9 @@ void open_post_applet(const std::string &body_utf8, bool is_explicit,
                       const std::string &title, const std::string &search_key,
                       uint32_t position_ms, uint32_t duration_ms);
 
-// Open the Miiverse overlay (redirected to Roséverse by Inkay-Roseverse).
-void open_overlay();
+// Open the Miiverse portal via StartPortalApp. If post_id is non-empty and the symbol
+// resolved correctly, navigates directly to that post; otherwise opens community 157.
+// Falls back to SYSSwitchTo(SYSAPP_PFID_MIIVERSE) if StartPortalApp symbols are missing.
+void open_overlay(const std::string &post_id = {});
 
 } // namespace OLV

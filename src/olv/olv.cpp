@@ -66,6 +66,17 @@ static FnGetMiiNickname  s_fn_get_mii_nickname = nullptr;
 static FnGetFeeling      s_fn_get_feeling      = nullptr;
 static FnGetAppData      s_fn_get_appdata      = nullptr;
 
+using FnGetPostId     = const char * (*)(const void *);
+static FnGetPostId    s_fn_get_post_id         = nullptr;
+
+// nn::olv::StartPortalApp — launch Miiverse portal at our community / a specific post.
+using FnPortalSetUi   = int32_t (*)(void *, uint32_t);
+using FnPortalSetStr  = int32_t (*)(void *, const char *);
+using FnStartPortal   = int32_t (*)(const void *);
+static FnPortalSetUi  s_fn_portal_set_community = nullptr;
+static FnPortalSetStr s_fn_portal_set_post_id   = nullptr;
+static FnStartPortal  s_fn_start_portal         = nullptr;
+
 // nn::olv::UploadPostDataByPostApp — interactive post creation applet
 using FnSetWork        = void    (*)(void *, uint8_t *, uint32_t);
 using FnSetBodyText    = void    (*)(void *, const uint16_t *);  // wchar_t* = uint16_t* on Wii U
@@ -97,6 +108,27 @@ struct __attribute__((packed)) PostMeta {
 static_assert(sizeof(PostMeta) == 16, "PostMeta must be 16 bytes");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Safely copy a const char* returned by a dynamically resolved nn_olv function.
+// Rejects null, out-of-range addresses, non-printable bytes, and strings longer than
+// max_len — all failure modes a bad mangled name could produce via a wrong callee.
+// Wii U usable memory: MEM1 0x00800000–0x01FFFFFF, MEM2 0x10000000–0x4FFFFFFF.
+static std::string safe_cstr(const char *ptr, size_t max_len = 64) {
+    if (!ptr) return {};
+    auto addr = reinterpret_cast<uintptr_t>(ptr);
+    bool in_mem1 = (addr >= 0x00800000u && addr <= 0x01FFFFFFu);
+    bool in_mem2 = (addr >= 0x10000000u && addr <= 0x4FFFFFFFu);
+    if (!in_mem1 && !in_mem2) return {};
+    std::string out;
+    out.reserve(max_len);
+    for (size_t i = 0; i < max_len; ++i) {
+        char c = ptr[i];
+        if (c == '\0') break;
+        if (c < 0x20 || c > 0x7E) return {};  // non-printable byte → garbage pointer
+        out += c;
+    }
+    return out;
+}
 
 // Convert a UTF-16 string (max_chars code units, null-terminated) to UTF-8.
 // BMP-only; surrogate pairs produce replacement characters.
@@ -203,14 +235,36 @@ bool init() {
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
         "GetAppData__Q3_2nn3olv18DownloadedDataBaseCFPUcPUiUi",
         reinterpret_cast<void **>(&s_fn_get_appdata));
+
+    OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
+        "GetPostId__Q3_2nn3olv18DownloadedPostDataCFv",
+        reinterpret_cast<void **>(&s_fn_get_post_id));
+
+    // StartPortalApp — open Miiverse portal at our community / a specific post.
+    // Note: the constructor symbol (__ct__...StartPortalAppParamFv) resolves but calls into
+    // networking code that hangs before connect and crashes after; zero-fill is sufficient.
+    OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
+        "SetCommunityId__Q3_2nn3olv19StartPortalAppParamFUi",
+        reinterpret_cast<void **>(&s_fn_portal_set_community));
+    OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
+        "SetPostId__Q3_2nn3olv19StartPortalAppParamFPCc",
+        reinterpret_cast<void **>(&s_fn_portal_set_post_id));
+    OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
+        "StartPortalApp__Q2_2nn3olvFPCQ3_2nn3olv19StartPortalAppParam",
+        reinterpret_cast<void **>(&s_fn_start_portal));
     WHBLogPrintf("olv: dl community=%s maxnum=%s search=%s body=%s nickname=%s feeling=%s appdata=%s",
-                 s_fn_dl_set_community ? "ok" : "missing",
-                 s_fn_dl_set_max_num   ? "ok" : "missing",
-                 s_fn_dl_set_search    ? "ok" : "missing",
-                 s_fn_get_body_text    ? "ok" : "missing",
-                 s_fn_get_mii_nickname ? "ok" : "missing",
-                 s_fn_get_feeling      ? "ok" : "missing",
-                 s_fn_get_appdata      ? "ok" : "missing");
+                 s_fn_dl_set_community    ? "ok" : "missing",
+                 s_fn_dl_set_max_num      ? "ok" : "missing",
+                 s_fn_dl_set_search       ? "ok" : "missing",
+                 s_fn_get_body_text       ? "ok" : "missing",
+                 s_fn_get_mii_nickname    ? "ok" : "missing",
+                 s_fn_get_feeling         ? "ok" : "missing",
+                 s_fn_get_appdata         ? "ok" : "missing");
+    WHBLogPrintf("olv: portal community=%s postid=%s start=%s getpostid=%s",
+                 s_fn_portal_set_community ? "ok" : "missing",
+                 s_fn_portal_set_post_id   ? "ok" : "missing",
+                 s_fn_start_portal         ? "ok" : "missing",
+                 s_fn_get_post_id          ? "ok" : "missing");
 
     // Post-creation applet symbols.
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
@@ -345,6 +399,8 @@ std::vector<Post> fetch_posts(uint32_t community_id, uint32_t limit,
                         post.body = utf16_to_utf8(buf, 200);
                     }
                     if (post.body.empty()) continue;
+                    if (s_fn_get_post_id)
+                        post.post_id = safe_cstr(s_fn_get_post_id(p));
                     if (s_fn_get_mii_nickname) {
                         const uint16_t *nick = s_fn_get_mii_nickname(p);
                         if (nick) post.screen_name = utf16_to_utf8(nick, 16);
@@ -433,8 +489,22 @@ void open_post_applet(const std::string &body_utf8, bool is_explicit,
     WHBLogPrintf("olv: UploadPostDataByPostApp → 0x%08X", (uint32_t)rc);
 }
 
-void open_overlay() {
-    SYSSwitchTo(SYSAPP_PFID_MIIVERSE);
+void open_overlay(const std::string &post_id) {
+    if (s_fn_portal_set_community && s_fn_start_portal) {
+        // StartPortalAppParam — plain data struct; zero-fill is equivalent to default-init.
+        // The constructor symbol resolves to a wrong function (causes hang/crash), so skip it.
+        alignas(32) uint8_t param[0x200] = {};
+        WHBLogPrint("olv: portal set_community...");
+        s_fn_portal_set_community(param, COMMUNITY_ID);
+        if (!post_id.empty() && s_fn_portal_set_post_id) {
+            WHBLogPrintf("olv: portal set_post_id=%s", post_id.c_str());
+            s_fn_portal_set_post_id(param, post_id.c_str());
+        }
+        WHBLogPrint("olv: portal start...");
+        s_fn_start_portal(param);
+    } else {
+        SYSSwitchTo(SYSAPP_PFID_MIIVERSE);
+    }
 }
 
 } // namespace OLV

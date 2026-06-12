@@ -121,7 +121,7 @@ private:
     OggVorbis_File        vf_{};
     bool                  vf_open_ = false;
 
-    // ── cache retention thread (CPU0, hourly sweep, 3-day TTL) ───────────────
+    // ── cache retention thread (CPU0, hourly sweep, configurable TTL) ────────
     void cache_cleanup_fn();
     std::thread            cache_thread_;
     std::atomic<bool>      cache_stop_{false};

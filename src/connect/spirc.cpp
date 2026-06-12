@@ -879,15 +879,32 @@ void Spirc::handle_dealer_message(const std::string &uri,
     if (cs.active_device_id != device_id_) {
         WHBLogPrintf("spirc: cluster skip: active='%.40s' ours='%.40s'",
                      cs.active_device_id.c_str(), device_id_.c_str());
+        if (playing_) {
+            WHBLogPrint("spirc: became inactive — stopping");
+            playing_ = false;
+            current_track_uri_.clear();  // don't suppress the next re-transfer for this track
+            if (callbacks_.on_became_inactive) callbacks_.on_became_inactive();
+        }
         return;
     }
     if (cs.track_uri.empty()) return;
 
+    // Same track, paused mid-song (started_playing_at_ms_ > 0), cluster says play:
+    // treat as resume, not reload.  started_playing_at_ms_==0 means the track ended
+    // naturally (notify_track_end reset it), so that case still falls through to a
+    // full reload (repeat-track behaviour).
+    if (cs.track_uri == current_track_uri_ && !playing_ && cs.is_playing
+            && started_playing_at_ms_ > 0) {
+        WHBLogPrintf("spirc: cluster resume @%ldms", (long)cs.position_ms);
+        playing_ = true;
+        pos_ms_  = (int)cs.position_ms;
+        if (callbacks_.on_playing_changed) callbacks_.on_playing_changed(true, pos_ms_);
+        put_connect_state_async(4, true, pos_ms_, vol_pct_);
+        return;
+    }
+
     // Suppress cluster echoes of our own state.
-    // Allow through only when Spotify signals a NEW track or wants to REPLAY
-    // the current track (single-track repeat: playing_=false, cs.is_playing=true).
     if (cs.track_uri == current_track_uri_ && (playing_ || !cs.is_playing)) {
-        // Echo: same track, same playing state (or we're already playing it).
         // Periodic keepalive PUT if we haven't pushed recently.
         int64_t now_ms = now_ms_wiiu();
         if (helo_done_.load() && now_ms - last_state_push_ms_ >= 30000)

@@ -27,29 +27,33 @@ WUPS_USE_WUT_DEVOPTAB();
 #define CACHE_BASE   "/vol/external01/spotify_cache"
 #define FLAG_FILE    CACHE_BASE "/.sweep_now"
 #define CONFIG_FILE  CACHE_BASE "/.plugin_config"
-#define MAX_AGE_SECS (3 * 24 * 60 * 60)  // 3 days, matches WUHB
 
 // ── Config (plain text file next to the cache) ────────────────────────────────
 
 static bool    s_enabled      = true;
 static int32_t s_interval_min = 60;
+static int32_t s_max_age_days = 3;
 
 static void load_config() {
     FILE *f = fopen(CONFIG_FILE, "r");
     if (!f) return;
     int enabled = 1;
-    fscanf(f, "enabled=%d\ninterval_min=%d", &enabled, &s_interval_min);
+    fscanf(f, "enabled=%d\ninterval_min=%d\nmax_age_days=%d",
+           &enabled, &s_interval_min, &s_max_age_days);
     fclose(f);
     s_enabled = (bool)enabled;
     if (s_interval_min < 1)    s_interval_min = 1;
     if (s_interval_min > 1440) s_interval_min = 1440;
+    if (s_max_age_days < 1)    s_max_age_days = 1;
+    if (s_max_age_days > 30)   s_max_age_days = 30;
 }
 
 static void save_config() {
     mkdir(CACHE_BASE, 0755);
     FILE *f = fopen(CONFIG_FILE, "w");
     if (!f) return;
-    fprintf(f, "enabled=%d\ninterval_min=%d\n", (int)s_enabled, s_interval_min);
+    fprintf(f, "enabled=%d\ninterval_min=%d\nmax_age_days=%d\n",
+            (int)s_enabled, s_interval_min, s_max_age_days);
     fclose(f);
 }
 
@@ -57,7 +61,7 @@ static void save_config() {
 
 static int do_sweep() {
     int evicted = 0;
-    time_t cutoff = time(nullptr) - MAX_AGE_SECS;
+    time_t cutoff = time(nullptr) - (time_t)s_max_age_days * 24 * 60 * 60;
 
     DIR *base = opendir(CACHE_BASE);
     if (!base) return 0;
@@ -141,6 +145,11 @@ static void on_interval_changed(ConfigItemIntegerRange *, int32_t value) {
     save_config();
 }
 
+static void on_max_age_changed(ConfigItemIntegerRange *, int32_t value) {
+    s_max_age_days = value;
+    save_config();
+}
+
 static WUPSConfigAPICallbackStatus config_opened(WUPSConfigCategoryHandle root_handle) {
     WUPSConfigCategory root(root_handle);
     try {
@@ -152,6 +161,11 @@ static WUPSConfigAPICallbackStatus config_opened(WUPSConfigCategoryHandle root_h
             "interval_min", "Sweep interval (minutes)",
             60, s_interval_min, 1, 1440,
             on_interval_changed));
+
+        root.add(WUPSConfigItemIntegerRange::Create(
+            "max_age_days", "Max cache age (days)",
+            3, s_max_age_days, 1, 30,
+            on_max_age_changed));
     } catch (const std::exception &e) {
         return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
     }
