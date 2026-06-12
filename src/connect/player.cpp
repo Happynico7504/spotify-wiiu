@@ -311,9 +311,10 @@ void Player::on_credentials(Discovery::Credentials creds) {
     WHBLogPrintf("player: credentials for '%s'", creds.username.c_str());
     state_.store(State::Connecting);
 
-    // Clean up any previous connection (join defunct recv thread, close fd)
+    // Clean up any previous connection (join defunct recv thread, close fd).
+    // ap_ may be null if kill_connection() already reset it (background timeout).
     if (spirc_) { spirc_->stop(); spirc_.reset(); }
-    ap_->disconnect();
+    if (ap_) ap_->disconnect();
     ap_ = std::make_unique<AP>();
 
     AP::Callbacks acb;
@@ -321,10 +322,14 @@ void Player::on_credentials(Discovery::Credentials creds) {
         on_ap_packet(cmd, std::move(pl));
     };
     acb.on_disconnect = [this] {
+        // Do NOT touch spirc_ here — on_credentials may have already reset it
+        // before calling ap_->disconnect(), or may be in the middle of creating
+        // a new one.  Spirc cleanup is always handled by on_credentials /
+        // kill_connection under connect_mu_.
         WHBLogPrint("player: AP disconnected");
         state_.store(State::WaitingForUser);
         audio_->stop();
-        spirc_.reset();
+        spirc_playing_ = false;
         display_.set_waiting();
     };
 
