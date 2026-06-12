@@ -1,11 +1,10 @@
 #include <wups.h>
+#include <wups/config/WUPSConfigCategory.h>
 #include <wups/config/WUPSConfigItemBoolean.h>
 #include <wups/config/WUPSConfigItemIntegerRange.h>
 
 #include <coreinit/thread.h>
 #include <coreinit/time.h>
-#include <whb/log.h>
-#include <whb/sdcard.h>
 
 #include <dirent.h>
 #include <sys/stat.h>
@@ -30,10 +29,10 @@ WUPS_USE_WUT_DEVOPTAB();
 #define CONFIG_FILE  CACHE_BASE "/.plugin_config"
 #define MAX_AGE_SECS (3 * 24 * 60 * 60)  // 3 days, matches WUHB
 
-// ── Config (stored as a plain text file next to the cache) ────────────────────
+// ── Config (plain text file next to the cache) ────────────────────────────────
 
-static bool     s_enabled      = true;
-static int32_t  s_interval_min = 60;
+static bool    s_enabled      = true;
+static int32_t s_interval_min = 60;
 
 static void load_config() {
     FILE *f = fopen(CONFIG_FILE, "r");
@@ -68,8 +67,8 @@ static int do_sweep() {
         if (tde->d_name[0] == '.') continue;
 
         char tdir[512], ts_path[560];
-        snprintf(tdir,    sizeof(tdir),    "%s/%s",            CACHE_BASE, tde->d_name);
-        snprintf(ts_path, sizeof(ts_path), "%s/.timestamp",    tdir);
+        snprintf(tdir,    sizeof(tdir),    "%s/%s",         CACHE_BASE, tde->d_name);
+        snprintf(ts_path, sizeof(ts_path), "%s/.timestamp", tdir);
 
         FILE *tf = fopen(ts_path, "r");
         if (!tf) continue;
@@ -79,7 +78,6 @@ static int do_sweep() {
 
         if ((time_t)last_played >= cutoff) continue;
 
-        // Evict: delete all chunk files then the directory
         DIR *td = opendir(tdir);
         if (td) {
             struct dirent *cde;
@@ -97,7 +95,6 @@ static int do_sweep() {
     }
     closedir(base);
 
-    WHBLogPrintf("cache-sweep: evicted %d tracks", evicted);
     return evicted;
 }
 
@@ -108,7 +105,6 @@ static uint8_t           s_stack[16 * 1024];
 static std::atomic<bool> s_stop{false};
 
 static int sweep_thread_fn(int argc, const char **argv) {
-    // Initial boot sweep
     if (s_enabled)
         do_sweep();
 
@@ -117,7 +113,6 @@ static int sweep_thread_fn(int argc, const char **argv) {
         for (int i = 0; i < secs && !s_stop.load(); ++i) {
             OSSleepTicks(OSMillisecondsToTicks(1000));
 
-            // Check for manual trigger written by the WUHB on standby
             FILE *f = fopen(FLAG_FILE, "r");
             if (f) {
                 fclose(f);
@@ -146,36 +141,32 @@ static void on_interval_changed(ConfigItemIntegerRange *, int32_t value) {
     save_config();
 }
 
-WUPS_GET_CONFIG() {
-    WUPSConfigAPIStatus res;
-    WUPSConfigHandle config;
-    WUPSConfigAPI_Init({.name = "Spotify Cache Sweep"}, &res, &config);
-    if (res != WUPSCONFIG_API_RESULT_SUCCESS)
-        return config;
+static WUPSConfigAPICallbackStatus config_opened(WUPSConfigCategoryHandle root_handle) {
+    WUPSConfigCategory root(root_handle);
+    try {
+        root.add(WUPSConfigItemBoolean::Create(
+            "enabled", "Auto-sweep enabled",
+            true, s_enabled, on_enabled_changed));
 
-    WUPSConfigCategoryHandle cat;
-    WUPSConfigAPI_Category_CreateHandleByName(config, "Settings", &cat);
-
-    WUPSConfigItemBoolean_AddToCategory(
-        cat, "enabled", "Auto-sweep enabled",
-        true, s_enabled, on_enabled_changed);
-
-    WUPSConfigItemIntegerRange_AddToCategory(
-        cat, "interval_min", "Sweep interval (minutes)",
-        60, s_interval_min, 1, 1440, on_interval_changed);
-
-    return config;
+        root.add(WUPSConfigItemIntegerRange::Create(
+            "interval_min", "Sweep interval (minutes)",
+            60, s_interval_min, 1, 1440,
+            on_interval_changed));
+    } catch (const std::exception &e) {
+        return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
+    }
+    return WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS;
 }
+
+static void config_closed() {}
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 INITIALIZE_PLUGIN() {
-    WHBLogUdpInit();
-    WHBMountSdCard();
-
     load_config();
-    WHBLogPrintf("cache-sweep: init (enabled=%d interval=%dmin)",
-                 (int)s_enabled, s_interval_min);
+
+    WUPSConfigAPIOptionsV1 opts = {.name = "Spotify Cache Sweep"};
+    WUPSConfigAPI_Init(opts, config_opened, config_closed);
 
     s_stop.store(false);
     OSCreateThread(&s_thread, sweep_thread_fn, 0, nullptr,
@@ -188,6 +179,4 @@ INITIALIZE_PLUGIN() {
 DEINITIALIZE_PLUGIN() {
     s_stop.store(true);
     OSJoinThread(&s_thread, nullptr);
-    WHBUnmountSdCard();
-    WHBLogUdpDeinit();
 }
