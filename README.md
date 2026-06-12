@@ -64,7 +64,7 @@ An unofficial [Spotify Connect](https://www.spotify.com/connect/) client for the
 
 #### Easy — one download (recommended)
 
-Grab the bundle for your platform from the [latest bundle release](../../releases/latest):
+Grab the bundle for your platform from the [latest bundle release](../../releases/tag/bundle-v1.0.5):
 
 | Platform | File |
 |----------|------|
