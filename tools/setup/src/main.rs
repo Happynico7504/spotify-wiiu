@@ -183,10 +183,57 @@ fn wiiu_dir(sd: &Path) -> PathBuf {
     if lc.exists() { lc } else { sd.join("WIIU") }
 }
 
-fn check_aroma(sd: &Path) -> bool {
-    let wiiu = wiiu_dir(sd);
-    wiiu.join("environments").join("aroma").exists()
-        || wiiu.join("environments").join("Aroma").exists()
+// Returns all Aroma-like environments found under SD:/wiiu/environments/.
+// An environment is considered Aroma if it has a modules/ directory (where
+// Aroma loads .wms modules from) or a root.rpx file.
+fn find_aroma_environments(sd: &Path) -> Vec<PathBuf> {
+    let envs = wiiu_dir(sd).join("environments");
+    let mut found = Vec::new();
+    if let Ok(entries) = fs::read_dir(&envs) {
+        let mut entries: Vec<_> = entries.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            let p = entry.path();
+            if !p.is_dir() { continue; }
+            if p.join("modules").is_dir() || p.join("root.rpx").exists() {
+                found.push(p);
+            }
+        }
+    }
+    found
+}
+
+// Detect Aroma environments and ask the user to pick one if multiple exist.
+// Returns the chosen environment path, or None if none were found.
+fn pick_aroma_environment(sd: &Path) -> Option<PathBuf> {
+    let envs = find_aroma_environments(sd);
+    match envs.len() {
+        0 => None,
+        1 => {
+            let name = envs[0].file_name().and_then(|n| n.to_str()).unwrap_or("?");
+            ok(&format!("Aroma environment: {name}"));
+            Some(envs[0].clone())
+        }
+        _ => {
+            println!();
+            println!("  Multiple Aroma environments detected:");
+            for (i, p) in envs.iter().enumerate() {
+                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+                println!("    {}) {name}", i + 1);
+            }
+            println!();
+            let answer = prompt(&format!(
+                "  Which environment will you boot into? [1–{}]: ",
+                envs.len()
+            ));
+            let idx = answer.trim().parse::<usize>().unwrap_or(1);
+            let idx = idx.saturating_sub(1).min(envs.len() - 1);
+            let chosen = envs.into_iter().nth(idx).unwrap();
+            let name = chosen.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+            ok(&format!("Using environment: {name}"));
+            Some(chosen)
+        }
+    }
 }
 
 // ── WUHB download ─────────────────────────────────────────────────────────────
@@ -348,7 +395,7 @@ fn main() {
     match find_sd_card() {
         Some(sd) => {
             info(&format!("Detected: {}", sd.display()));
-            if !check_aroma(&sd) {
+            if pick_aroma_environment(&sd).is_none() {
                 warn("Aroma does not appear to be installed on this SD card.");
                 warn("Install it first: https://wiiu.hacks.guide/");
             }
@@ -379,7 +426,7 @@ fn main() {
             Ok((wuhb, _tag)) => {
                 match find_sd_card() {
                     Some(sd) => {
-                        if !check_aroma(&sd) {
+                        if pick_aroma_environment(&sd).is_none() {
                             warn("Aroma does not appear to be installed on this SD card.");
                             warn("Install it first: https://wiiu.hacks.guide/");
                         }
