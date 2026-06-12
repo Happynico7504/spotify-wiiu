@@ -124,7 +124,6 @@ private:
     std::string artist_;
     bool        explicit_   = false;
     std::string art_url_;
-    bool        explicit_   = false;
     int         pos_ms_     = 0;
     int         dur_ms_     = 0;
     bool        playing_    = false;
