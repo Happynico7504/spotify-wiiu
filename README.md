@@ -14,14 +14,16 @@ An unofficial [Spotify Connect](https://www.spotify.com/connect/) client for the
 - **Progress bar** with real-time position
 - **Audio Crystalizer** — harmonic-enhancement effect with adjustable strength
 - **Spectrum visualizer**
+- **GamePad touchscreen** — tap album art to play/pause, swipe left/right to skip, drag the progress bar to seek
 - **Multi-controller support** — GamePad, Wii Remote, and Pro Controller all work
+- **Cache-sweep plugin** — optional Aroma plugin that automatically purges stale audio cache at boot and on a configurable interval, keeping your SD card tidy
 
 ## Controls
 
 ### GamePad (VPAD)
 
-| Button | Action |
-|--------|--------|
+| Button / Gesture | Action |
+|-----------------|--------|
 | `+` / `-` | Volume +5 / −5 |
 | `R` / `L` | Next / Previous track |
 | `ZR` / `ZL` | Seek +5 s / −5 s |
@@ -33,6 +35,9 @@ An unofficial [Spotify Connect](https://www.spotify.com/connect/) client for the
 | `B` | Show / hide controls overlay |
 | `Stick R` | Open current post in Roséverse overlay |
 | `Stick L` | Post to Roséverse |
+| Tap album art | Play / Pause |
+| Swipe left / right | Next / Previous track |
+| Drag progress bar | Seek |
 
 ### Wii Remote
 
@@ -89,7 +94,7 @@ chmod +x librespot spotify-wiiu-setup
 spotify-wiiu-setup.exe
 ```
 
-The tool launches librespot, waits for you to select **"wii-u-setup"** in any Spotify app, converts the credentials, and offers to copy them to your SD card — all in one step.
+The tool launches librespot, waits for you to select **"wii-u-setup"** in any Spotify app, converts the credentials, copies them to your SD card, and downloads and installs the latest `spotify-wiiu.wuhb` and `spotify-cache-sweep.wps` — all in one step.
 
 #### Manual — power users
 
@@ -150,7 +155,17 @@ SD:/spotify_saved_creds.bin
 
 > The setup tool can do this step automatically if your SD card is mounted.
 
-### 3. Launch
+### 3. Install the cache-sweep plugin (optional)
+
+The cache-sweep plugin runs at boot under Aroma and automatically purges Spotify audio cache entries older than 3 days, keeping SD card usage in check. The setup tool installs it automatically; to install manually, copy `spotify-cache-sweep.wps` to:
+
+```
+SD:/wiiu/environments/<your-aroma-env>/modules/plugins/spotify-cache-sweep.wps
+```
+
+Once installed, its sweep interval (default: 60 minutes) and enable/disable toggle are configurable from the **Aroma Config Menu** (`L` + `↓` + `SELECT` on the GamePad).
+
+### 4. Launch
 
 1. Insert the SD card and power on the Wii U
 2. Open the **Aroma Homebrew Launcher**
@@ -166,18 +181,22 @@ SD:/spotify_saved_creds.bin
   dkp-pacman -S wut wiiu-sdl2 wiiu-sdl2_ttf wiiu-curl wiiu-mbedtls
   ```
 - [Tremor](https://xiph.org/tremor/) (libvorbisidec) — either as a devkitPro portlib or the Makefile will build it from `vendor/tremor/`
+- **For the cache-sweep plugin only:** [WiiUPluginSystem](https://github.com/wiiu-env/WiiUPluginSystem) (WUPS SDK) — not in dkp-pacman, build from source:
+  ```sh
+  git clone --depth 1 https://github.com/wiiu-env/WiiUPluginSystem.git /tmp/wups
+  cd /tmp/wups && make install
+  ```
 
 ### Build
 
 ```sh
-make
+make                          # produces spotify-wiiu.wuhb
+make -C plugins/cache-sweep  # produces plugins/cache-sweep/spotify-cache-sweep.wps
 ```
-
-This produces `spotify-wiiu.wuhb` (the installable package).
 
 ### CI / Docker
 
-A `Dockerfile` is provided at `.github/Dockerfile` with all dependencies pre-installed. The GitHub Actions workflow uses it to build on every push.
+A `Dockerfile` is provided at `.github/Dockerfile` with all dependencies pre-installed (including the WUPS SDK). The GitHub Actions workflow builds both the WUHB and the plugin on every push and publishes them in releases.
 
 ## Project layout
 
@@ -188,16 +207,18 @@ src/
   ui/         # SDL2 display, spectrum visualiser, font baking
   spotify/    # Shared utilities (HTTP mutex)
   olv/        # Roséverse / Miiverse (nn_olv) integration
+plugins/
+  cache-sweep/  # Aroma WUPS plugin — boot-time audio cache GC with config menu
 vendor/       # cJSON, stb_image
 tools/
-  setup/      # Native setup tool (Rust) — guides users through credential setup
+  setup/      # Native setup tool (Rust) — credentials, SD copy, WUHB + plugin install
   setup.py    # Python equivalent for power users
   make_creds.py  # Convert librespot credentials.json → spotify_saved_creds.bin
 meta/         # Wii U app metadata (meta.xml, icon.png)
 content/      # Bundled assets (font)
 .github/
-  Dockerfile  # Pre-baked builder image (devkitPPC + WUT + Rust/musl)
-  workflows/  # CI: wuhb build, setup tool, platform bundles, Docker image
+  Dockerfile  # Pre-baked builder image (devkitPPC + WUT + WUPS SDK + Rust/musl)
+  workflows/  # CI: wuhb + plugin build, setup tool, platform bundles, Docker image
 ```
 
 ## License
