@@ -613,15 +613,18 @@ void Player::handle_buttons(uint32_t trigger) {
     }
 }
 
-// ── GamePad touch (DRC 854×480) ──────────────────────────────────────────────
+// ── GamePad touch ─────────────────────────────────────────────────────────────
 //
-// Touch zones (DRC coords, derived from theme.h constants × 854/1280):
-//   Progress bar seek : x 27–827,  y 395–445  (expanded tap target)
-//   Album art tap     : x 27–267,  y 40–280   → play/pause
-//   Swipe anywhere    : |dx| > 80, |dy| < 60  → next (left) / prev (right)
+// VPADGetTPCalibratedPoint returns physical DRC coordinates (0–853, 0–479).
+// The framebuffer is 1280×720, so we scale up: fx = tx*1280/854, fy = ty*720/480.
+// After scaling, coordinates are directly comparable to Theme:: constants.
 //
-// Seek fires continuously while the finger is on the bar; swipe and art-tap
-// fire once on release so accidental drags don't trigger them.
+// Touch zones (1280×720 framebuffer space, see theme.h):
+//   Progress bar seek : x 40–1240,  y 600–660  (expanded tap target around BAR_Y=620)
+//   Album art tap     : x 40–400,   y 60–420   → play/pause
+//   Swipe anywhere    : |dx| > 120, |dy| < 90  → next (left) / prev (right)
+//
+// Seek fires continuously while held; swipe and art-tap fire once on release.
 
 void Player::handle_touch(const void *vpad_status_ptr) {
     const VPADStatus &vpad = *static_cast<const VPADStatus *>(vpad_status_ptr);
@@ -629,23 +632,26 @@ void Player::handle_touch(const void *vpad_status_ptr) {
     VPADTouchData tp{};
     VPADGetTPCalibratedPoint(VPAD_CHAN_0, &tp, &vpad.tpNormal);
 
+    // Scale from DRC physical (854×480) to framebuffer space (1280×720)
+    const int fx = (int)tp.x * 1280 / 854;
+    const int fy = (int)tp.y * 720  / 480;
+
     if (!tp.touched) {
         if (touch_.active && !touch_.consumed && spirc_) {
-            // Finger lifted — evaluate tap/swipe
             int dx = (int)touch_.cur_x - touch_.start_x;
             int dy = (int)touch_.cur_y - touch_.start_y;
 
             // Horizontal swipe → next / prev track
-            if (std::abs(dx) >= 80 && std::abs(dy) < 60) {
+            if (std::abs(dx) >= 120 && std::abs(dy) < 90) {
                 if (dx < 0)
                     spirc_->skip(true);   // swipe left → next
                 else
                     spirc_->skip(false);  // swipe right → prev
             }
             // Tap on album art → play/pause
-            else if (touch_.start_x >= 27 && touch_.start_x <= 267 &&
-                     touch_.start_y >= 40  && touch_.start_y <= 280 &&
-                     std::abs(dx) < 20 && std::abs(dy) < 20) {
+            else if (touch_.start_x >= 40  && touch_.start_x <= 400 &&
+                     touch_.start_y >= 60  && touch_.start_y <= 420 &&
+                     std::abs(dx) < 30 && std::abs(dy) < 30) {
                 int pos = audio_->position_ms();
                 if (spirc_playing_) {
                     spirc_playing_ = false;
@@ -666,18 +672,18 @@ void Player::handle_touch(const void *vpad_status_ptr) {
     if (!touch_.active) {
         touch_.active   = true;
         touch_.consumed = false;
-        touch_.start_x  = tp.x;
-        touch_.start_y  = tp.y;
+        touch_.start_x  = (int16_t)fx;
+        touch_.start_y  = (int16_t)fy;
     }
-    touch_.cur_x = tp.x;
-    touch_.cur_y = tp.y;
+    touch_.cur_x = (int16_t)fx;
+    touch_.cur_y = (int16_t)fy;
 
     // Progress bar: seek continuously while finger is held on bar
     if (!touch_.consumed &&
-        tp.y >= 395 && tp.y <= 445 &&
-        tp.x >= 27  && tp.x <= 827 &&
+        fy >= 600 && fy <= 660 &&
+        fx >= 40  && fx <= 1240 &&
         spirc_ && track_dur_ms_ > 0) {
-        float frac   = float(tp.x - 27) / 800.0f;
+        float frac   = float(fx - 40) / 1200.0f;
         int   pos_ms = int(frac * track_dur_ms_);
         audio_->seek(pos_ms);
         spirc_->seek_to(pos_ms);
