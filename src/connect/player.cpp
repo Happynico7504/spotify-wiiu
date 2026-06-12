@@ -129,6 +129,8 @@ void Player::run() {
             OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU0);
             on_credentials(std::move(creds));
         });
+    }, [this](std::string msg) {
+        display_.set_error(std::move(msg));
     });
 
     WHBLogPrint("player: waiting for Spotify app...");
@@ -197,14 +199,56 @@ void Player::run() {
             }
         }
 
-        // Auto-advance OLV card every 5 s while visible
+        // OLV card auto-advance while visible.
+        // Two modes depending on whether fetched posts carry timestamp metadata:
+        //   Timestamp mode: advance to the post whose position_ms best matches the
+        //     current track position; refresh the post list every 30 s.
+        //   Time-based fallback (no metadata): rotate every 5 s, refetch on wrap.
+        // Both modes enforce a 3 s minimum dwell before any advance.
         if (OLV::is_available()) {
             uint64_t now = OSGetSystemTick();
-            if (now - olv_last_advance_ >= OSSecondsToTicks(5)) {
-                std::lock_guard<std::mutex> lk(olv_mu_);
-                if (olv_card_visible_ && !olv_fetching_) {
-                    olv_last_advance_ = now;
-                    if (!olv_posts_.empty()) {
+            std::lock_guard<std::mutex> lk(olv_mu_);
+            if (!olv_fetching_) {
+                if (!olv_posts_.empty()) {
+                    bool dwell_ok = (now - olv_shown_at_ >= OSSecondsToTicks(3));
+                    if (olv_posts_[0].position_ms > 0) {
+                        // ── Timestamp mode ──────────────────────────────────────────
+                        if (dwell_ok) {
+                            uint32_t cur_pos = (uint32_t)std::max(0, audio_->position_ms());
+                            // Rightmost post whose timestamp has been reached.
+                            bool found = false;
+                            size_t target = 0;
+                            for (size_t i = 0; i < olv_posts_.size(); ++i) {
+                                if (olv_posts_[i].position_ms <= cur_pos) {
+                                    target = i;
+                                    found = true;
+                                }
+                            }
+                            if (found) {
+                                if (target != olv_post_idx_) {
+                                    olv_post_idx_ = target;
+                                    olv_show_current();
+                                }
+                            } else if (olv_post_idx_ != SIZE_MAX) {
+                                // User seeked back before the first post's timestamp.
+                                olv_post_idx_ = SIZE_MAX;
+                                display_.set_olv_post(nullptr);
+                            }
+                        }
+                        // Refresh post list every 30 s.
+                        if (now - olv_last_advance_ >= OSSecondsToTicks(30)) {
+                            if (olv_fetch_thread_.joinable()) olv_fetch_thread_.join();
+                            olv_fetching_ = true;
+                            olv_fetch_thread_ = std::thread([this] {
+                                OSSetThreadAffinity(OSGetCurrentThread(),
+                                                    OS_THREAD_ATTRIB_AFFINITY_CPU0);
+                                olv_fetch(OLV::COMMUNITY_ID);
+                            });
+                        }
+                    } else if (now - olv_last_advance_ >= OSSecondsToTicks(5)) {
+                        // ── Time-based fallback ──────────────────────────────────────
+                        // 5 s timer already exceeds the 3 s minimum; no extra check needed.
+                        olv_last_advance_ = now;
                         olv_post_idx_ = (olv_post_idx_ + 1) % olv_posts_.size();
                         if (olv_post_idx_ == 0) {
                             if (olv_fetch_thread_.joinable()) olv_fetch_thread_.join();
@@ -217,15 +261,17 @@ void Player::run() {
                         } else {
                             olv_show_current();
                         }
-                    } else {
-                        if (olv_fetch_thread_.joinable()) olv_fetch_thread_.join();
-                        olv_fetching_ = true;
-                        olv_fetch_thread_ = std::thread([this] {
-                            OSSetThreadAffinity(OSGetCurrentThread(),
-                                                OS_THREAD_ATTRIB_AFFINITY_CPU0);
-                            olv_fetch(OLV::COMMUNITY_ID);
-                        });
                     }
+                } else if (now - olv_last_advance_ >= OSSecondsToTicks(5)) {
+                    // No posts yet — kick off initial fetch.
+                    olv_last_advance_ = now;
+                    if (olv_fetch_thread_.joinable()) olv_fetch_thread_.join();
+                    olv_fetching_ = true;
+                    olv_fetch_thread_ = std::thread([this] {
+                        OSSetThreadAffinity(OSGetCurrentThread(),
+                                            OS_THREAD_ATTRIB_AFFINITY_CPU0);
+                        olv_fetch(OLV::COMMUNITY_ID);
+                    });
                 }
             }
         }
@@ -472,9 +518,10 @@ void Player::on_track_changed(const std::string &title, const std::string &artis
     {
         std::lock_guard<std::mutex> lk(olv_mu_);
         olv_posts_.clear();
-        olv_post_idx_ = 0;
+        olv_post_idx_ = SIZE_MAX;
         olv_last_advance_ = 0;  // trigger immediate fetch on next main loop tick
     }
+    display_.set_olv_post(nullptr);  // clear card immediately; refetch will repopulate it
 }
 
 // ── GamePad buttons ───────────────────────────────────────────────────────────
@@ -552,33 +599,15 @@ void Player::handle_buttons(uint32_t trigger) {
         spirc_->notify(spirc_playing_, pos, volume_);
     }
 
-    // ── OLV: StickR = toggle post card visibility ────────────────────────────
+    // ── OLV: StickR = open current post in Roséverse overlay ────────────────
     if ((trigger & VPAD_BUTTON_STICK_R) && OLV::is_available()) {
-        std::lock_guard<std::mutex> lk(olv_mu_);
-        olv_card_visible_ = !olv_card_visible_;
-        if (olv_card_visible_) {
-            if (olv_posts_.empty()) {
-                if (!olv_fetching_) {
-                    if (olv_fetch_thread_.joinable()) olv_fetch_thread_.join();
-                    olv_fetching_ = true;
-                    olv_fetch_thread_ = std::thread([this] {
-                        OSSetThreadAffinity(OSGetCurrentThread(),
-                                            OS_THREAD_ATTRIB_AFFINITY_CPU0);
-                        olv_fetch(OLV::COMMUNITY_ID);
-                    });
-                }
-            } else {
-                olv_last_advance_ = OSGetSystemTick();
-                olv_show_current();
-            }
-        } else {
-            display_.set_olv_post(nullptr);
-        }
+        OLV::open_overlay();
     }
     if ((trigger & VPAD_BUTTON_STICK_L) && OLV::is_available()) {
         // ♪ Title — Artist  (UTF-8: ♪ = \xe2\x99\xaa, — = \xe2\x80\x94)
         std::string body = "\xe2\x99\xaa " + track_title_ + " \xe2\x80\x94 " + track_artist_;
-        OLV::open_post_applet(body, track_explicit_, track_title_ + " - " + track_artist_, track_id_);
+        OLV::open_post_applet(body, track_explicit_, track_title_ + " - " + track_artist_, track_id_,
+                              (uint32_t)std::max(0, audio_->position_ms()), (uint32_t)track_dur_ms_);
     }
 }
 
@@ -684,30 +713,12 @@ void Player::handle_pro_buttons(uint32_t trigger) {
     if (trigger & WPAD_PRO_BUTTON_B)
         display_.toggle_controls();
     if ((trigger & WPAD_PRO_BUTTON_STICK_R) && OLV::is_available()) {
-        std::lock_guard<std::mutex> lk(olv_mu_);
-        olv_card_visible_ = !olv_card_visible_;
-        if (olv_card_visible_) {
-            if (olv_posts_.empty()) {
-                if (!olv_fetching_) {
-                    if (olv_fetch_thread_.joinable()) olv_fetch_thread_.join();
-                    olv_fetching_ = true;
-                    olv_fetch_thread_ = std::thread([this] {
-                        OSSetThreadAffinity(OSGetCurrentThread(),
-                                            OS_THREAD_ATTRIB_AFFINITY_CPU0);
-                        olv_fetch(OLV::COMMUNITY_ID);
-                    });
-                }
-            } else {
-                olv_last_advance_ = OSGetSystemTick();
-                olv_show_current();
-            }
-        } else {
-            display_.set_olv_post(nullptr);
-        }
+        OLV::open_overlay();
     }
     if ((trigger & WPAD_PRO_BUTTON_STICK_L) && OLV::is_available()) {
         std::string body = "\xe2\x99\xaa " + track_title_ + " \xe2\x80\x94 " + track_artist_;
-        OLV::open_post_applet(body, track_explicit_, track_title_ + " - " + track_artist_, track_id_);
+        OLV::open_post_applet(body, track_explicit_, track_title_ + " - " + track_artist_, track_id_,
+                              (uint32_t)std::max(0, audio_->position_ms()), (uint32_t)track_dur_ms_);
     }
     if ((trigger & WPAD_PRO_BUTTON_X) && spirc_) {
         spirc_->toggle_shuffle();
@@ -736,10 +747,12 @@ void Player::handle_pro_buttons(uint32_t trigger) {
 
 void Player::olv_show_current() {
     // Must be called with olv_mu_ held.
-    if (olv_posts_.empty()) {
+    // olv_post_idx_ == SIZE_MAX means "timestamp mode, no post due yet".
+    if (olv_posts_.empty() || olv_post_idx_ >= olv_posts_.size()) {
         display_.set_olv_post(nullptr);
         return;
     }
+    olv_shown_at_ = OSGetSystemTick();
     const OLV::Post &p = olv_posts_[olv_post_idx_];
     UI::Display::OLVPost dp{ p.body, p.screen_name, p.feeling };
     display_.set_olv_post(&dp);
@@ -752,12 +765,21 @@ void Player::olv_fetch(uint32_t cid) {
     {
         std::lock_guard<std::mutex> lk(olv_mu_);
         if (!posts.empty()) {
+            // Stable sort by position_ms asc. Server returns posts latest-first, so
+            // ties (same timestamp) keep the latest post first — satisfying "prefer
+            // latest on time conflicts" without extra tie-breaking logic.
+            std::stable_sort(posts.begin(), posts.end(),
+                [](const OLV::Post &a, const OLV::Post &b) {
+                    return a.position_ms < b.position_ms;
+                });
             olv_posts_    = std::move(posts);
-            olv_post_idx_ = 0;
+            // Timestamp mode: start with SIZE_MAX ("nothing due yet") so the
+            // advance loop shows the first post only when its timestamp is reached.
+            // Time-based fallback: start at 0 as usual.
+            olv_post_idx_ = (olv_posts_[0].position_ms > 0) ? SIZE_MAX : 0;
             olv_last_advance_ = OSGetSystemTick();
         }
-        if (olv_card_visible_)
-            olv_show_current();
+        olv_show_current();
     }
     olv_fetching_ = false;
 }

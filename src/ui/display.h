@@ -30,6 +30,7 @@ public:
 
     // ── state setters (thread-safe) ──────────────────────────────────────────
     void set_waiting();   // "Waiting for Spotify…" before any session
+    void set_error(const std::string &msg);  // show error on the waiting screen
     void set_track(const std::string &title, const std::string &artist,
                    const std::string &album_art_url, bool is_explicit = false);
     void set_progress(int position_ms, int duration_ms, bool playing);
@@ -120,6 +121,8 @@ private:
     // ── display state (guarded by mu_) ───────────────────────────────────────
     std::mutex  mu_;
     bool        waiting_    = true;
+    std::string error_msg_;              // non-empty → show error on waiting screen
+    std::string snap_error_;             // render-thread copy, updated each frame under mu_
     std::string title_;
     std::string artist_;
     bool        explicit_   = false;

@@ -31,24 +31,7 @@
 
 namespace Discovery {
 
-// ── Spotify OAuth stored-credentials flow ────────────────────────────────────
-//
-// The Zeroconf v2 loginId is a session UUID — NOT a usable AP credential.
-// Spotify Connect receivers must authenticate with their own stored OAuth token.
-//
-// One-time setup: place your Spotify refresh_token in
-//   /vol/external01/spotify_refresh_token.txt
-// Obtain it via any PKCE/auth-code OAuth tool using
-//   client_id = 65b708073fc0480ea92a077233ca87bd
-
-static size_t zc_curl_write(char *ptr, size_t sz, size_t n, void *ud) {
-    static_cast<std::string*>(ud)->append(ptr, sz * n);
-    return sz * n;
-}
-
-static std::string s_access_token;
-static uint64_t    s_token_expiry_tick = 0;
-static bool        s_sd_mounted        = false;
+static bool s_sd_mounted = false;
 
 static void ensure_sd_mounted() {
     if (!s_sd_mounted) {
@@ -57,100 +40,6 @@ static void ensure_sd_mounted() {
     }
 }
 
-static std::string read_oneliner(const char *path) {
-    FILE *f = fopen(path, "r");
-    if (!f) return {};
-    char buf[512] = {};
-    fgets(buf, sizeof(buf), f);
-    fclose(f);
-    std::string s = buf;
-    while (!s.empty() && (s.back()=='\n'||s.back()=='\r'||s.back()==' ')) s.pop_back();
-    return s;
-}
-
-static std::string load_refresh_token() {
-    const char *path = "/vol/external01/spotify_refresh_token.txt";
-    std::string tok = read_oneliner(path);
-    if (tok.empty())
-        WHBLogPrintf("zc: no token — create %s with your refresh_token", path);
-    else
-        WHBLogPrintf("zc: loaded refresh_token len=%zu", tok.size());
-    return tok;
-}
-
-static std::string load_client_id() {
-    std::string id = read_oneliner("/vol/external01/spotify_client_id.txt");
-    if (id.empty()) id = "65b708073fc0480ea92a077233ca87bd";  // librespot fallback
-    WHBLogPrintf("zc: client_id='%.8s...'", id.c_str());
-    return id;
-}
-
-static std::string do_token_refresh(const std::string &refresh_token) {
-    CURL *c = curl_easy_init();
-    if (!c) return {};
-
-    std::string client_id = load_client_id();
-    std::string resp;
-    std::string body =
-        std::string("grant_type=refresh_token&refresh_token=") + refresh_token +
-        "&client_id=" + client_id;
-
-    struct curl_slist *hdrs = nullptr;
-    hdrs = curl_slist_append(hdrs, "Content-Type: application/x-www-form-urlencoded");
-
-    curl_easy_setopt(c, CURLOPT_URL,            "https://accounts.spotify.com/api/token");
-    curl_easy_setopt(c, CURLOPT_POST,           1L);
-    curl_easy_setopt(c, CURLOPT_POSTFIELDS,     body.c_str());
-    curl_easy_setopt(c, CURLOPT_HTTPHEADER,     hdrs);
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION,  zc_curl_write);
-    curl_easy_setopt(c, CURLOPT_WRITEDATA,      &resp);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT,        10L);
-    curl_easy_setopt(c, CURLOPT_SSL_VERIFYPEER, 0L);
-    curl_easy_setopt(c, CURLOPT_SSL_VERIFYHOST, 0L);
-
-    long http_code = 0;
-    CURLcode rc = curl_easy_perform(c);
-    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &http_code);
-    WHBLogPrintf("zc: token refresh rc=%d http=%ld resp='%.200s'",
-                 (int)rc, http_code, resp.c_str());
-
-    std::string access_token;
-    if (rc == CURLE_OK && http_code == 200) {
-        auto pos = resp.find("\"access_token\"");
-        if (pos != std::string::npos) {
-            pos = resp.find('"', pos + 14);
-            if (pos != std::string::npos) {
-                ++pos;
-                auto end2 = resp.find('"', pos);
-                if (end2 != std::string::npos)
-                    access_token = resp.substr(pos, end2 - pos);
-            }
-        }
-        if (!access_token.empty())
-            WHBLogPrintf("zc: access token ok len=%zu first20='%.20s'",
-                         access_token.size(), access_token.c_str());
-    }
-
-    curl_slist_free_all(hdrs);
-    curl_easy_cleanup(c);
-    return access_token;
-}
-
-// Returns a valid access token, refreshing from SD card if expired.
-static std::string get_current_access_token() {
-    uint64_t now = OSGetTick();
-    if (!s_access_token.empty() && now < s_token_expiry_tick)
-        return s_access_token;
-
-    ensure_sd_mounted();
-    std::string refresh_token = load_refresh_token();
-    if (refresh_token.empty()) return {};
-
-    s_access_token = do_token_refresh(refresh_token);
-    if (!s_access_token.empty())
-        s_token_expiry_tick = now + OSSecondsToTicks(3540);  // refresh 1 min early
-    return s_access_token;
-}
 
 // ── DH parameters (RFC 2409 / MODP Group 2, 1024-bit) ────────────────────────
 // Generator g = 2; prime p is standard.
@@ -342,8 +231,10 @@ Zeroconf::~Zeroconf() {
     mbedtls_dhm_free(&dhm_);
 }
 
-void Zeroconf::start(std::function<void(Credentials)> on_creds) {
+void Zeroconf::start(std::function<void(Credentials)> on_creds,
+                     std::function<void(std::string)> on_error) {
     on_creds_ = std::move(on_creds);
+    on_error_ = std::move(on_error);
     stop_.store(false);
     mdns_thread_ = std::thread(&Zeroconf::mdns_thread_fn, this);
     http_thread_ = std::thread(&Zeroconf::http_thread_fn, this);
@@ -653,29 +544,8 @@ void Zeroconf::handle_client(int fd) {
                 }
             }
 
-            // Priority 2: email + password for auth_type=0 (diagnostic / first run).
-            // The AP expects the Spotify login email, not the internal user ID.
-            // Put email in spotify_email.txt and password in spotify_password.txt.
-            {
-                std::string pw    = read_oneliner("/vol/external01/spotify_password.txt");
-                std::string email = read_oneliner("/vol/external01/spotify_email.txt");
-                if (!pw.empty()) {
-                    if (!email.empty()) creds.username = email;
-                    creds.auth_type = 0x00;  // AUTHENTICATION_USER_PASS
-                    creds.auth_data.assign(pw.begin(), pw.end());
-                    WHBLogPrintf("zc: using password auth user='%s' pw_len=%zu",
-                                 creds.username.c_str(), creds.auth_data.size());
-                    if (on_creds_) on_creds_(std::move(creds));
-                    return;
-                }
-            }
-
-            // Priority 3: loginId as AUTHENTICATION_SPOTIFY_TOKEN (auth_type=3).
-            creds.auth_type = 0x03;
-            creds.auth_data.assign(login_id.begin(), login_id.end());
-            WHBLogPrintf("zc: auth_data_len=%zu (loginId as token)", creds.auth_data.size());
-
-            if (on_creds_) on_creds_(std::move(creds));
+            WHBLogPrint("zc: spotify_saved_creds.bin not found on SD card");
+            if (on_error_) on_error_("Credentials not found on SD card");
             return;  // already responded above
         } else {
             WHBLogPrintf("zc: addUser missing credentials user='%s' blob_len=%zu loginId_len=%zu",

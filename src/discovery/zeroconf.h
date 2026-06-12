@@ -38,8 +38,10 @@ public:
     ~Zeroconf();
 
     // Start both threads.  on_creds is called (once, from http_thread_) when a
-    // Spotify client successfully pushes credentials.
-    void start(std::function<void(Credentials)> on_creds);
+    // Spotify client successfully pushes credentials.  on_error (optional) is
+    // called with a short human-readable message if credentials cannot be loaded.
+    void start(std::function<void(Credentials)> on_creds,
+               std::function<void(std::string)> on_error = {});
     void stop();
 
     const std::string &device_name() const { return device_name_; }
@@ -90,6 +92,7 @@ private:
     std::string         public_key_b64_;  // base64(DH public key), cached
 
     std::function<void(Credentials)> on_creds_;
+    std::function<void(std::string)> on_error_;
     std::thread         mdns_thread_;
     std::thread         http_thread_;
     std::atomic<bool>   stop_{false};

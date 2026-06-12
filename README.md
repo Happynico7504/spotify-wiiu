@@ -31,6 +31,8 @@ An unofficial [Spotify Connect](https://www.spotify.com/connect/) client for the
 | `↑` / `↓` | Crystalizer on / off |
 | `←` / `→` | Crystalizer strength −1 / +1 |
 | `B` | Show / hide controls overlay |
+| `Stick R` | Open current post in Roséverse overlay |
+| `Stick L` | Post to Roséverse |
 
 ### Wii Remote
 
@@ -57,6 +59,8 @@ An unofficial [Spotify Connect](https://www.spotify.com/connect/) client for the
 | `↑` / `↓` | Crystalizer on / off |
 | `←` / `→` | Crystalizer strength −1 / +1 |
 | `B` | Show / hide controls overlay |
+| `Stick R` | Open current post in Roséverse overlay |
+| `Stick L` | Post to Roséverse |
 
 ## Setup
 

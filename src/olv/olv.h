@@ -15,7 +15,9 @@ static constexpr const char *FEELING_STR[] = {
 struct Post {
     std::string body;
     std::string screen_name;
-    int         feeling;  // 0–5
+    int         feeling;      // 0–5
+    uint32_t    position_ms;  // track position when posted; 0 = no metadata
+    uint32_t    duration_ms;  // track duration at post time;  0 = no metadata
 };
 
 // Detect Roséverse via discovery endpoint, load nn_olv.rpl, initialise.
@@ -36,9 +38,12 @@ std::vector<Post> fetch_posts(uint32_t community_id, uint32_t limit,
 // Open the Miiverse post-creation applet with body_utf8 pre-filled.
 // title sets the topic tag (pass "Song - Artist"); search_key (Spotify track ID) is attached for
 // per-song post lookup. is_explicit=true sets the IS_SPOILER flag.
+// position_ms / duration_ms are embedded in the post's hidden app-data binary so that
+// clients can show posts anchored to their track timestamp. Pass 0/0 if unknown.
 // Blocking — returns after the user posts or cancels.
 void open_post_applet(const std::string &body_utf8, bool is_explicit,
-                      const std::string &title, const std::string &search_key);
+                      const std::string &title, const std::string &search_key,
+                      uint32_t position_ms, uint32_t duration_ms);
 
 // Open the Miiverse overlay (redirected to Roséverse by Inkay-Roseverse).
 void open_overlay();

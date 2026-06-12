@@ -54,6 +54,7 @@ using FnDLSetSearchKey   = int32_t (*)(void *, const uint16_t *, uint8_t);
 using FnGetBodyText      = int32_t (*)(const void *, uint16_t *, uint32_t);  // GetBodyText(wchar_t*, u32)
 using FnGetMiiNickname   = const uint16_t * (*)(const void *);               // GetMiiNickname() → const wchar_t*
 using FnGetFeeling       = int8_t  (*)(const void *);                        // GetFeeling() → s8
+using FnGetAppData       = int32_t (*)(const void *, uint8_t *, uint32_t *, uint32_t); // GetAppData(buf,&sz,maxSz)
 static FnDownloadPosts   s_fn_download         = nullptr;
 static FnCtor            s_fn_ctor_post        = nullptr;
 static FnCtor            s_fn_ctor_topic       = nullptr;
@@ -63,6 +64,7 @@ static FnDLSetSearchKey  s_fn_dl_set_search    = nullptr;
 static FnGetBodyText     s_fn_get_body_text    = nullptr;
 static FnGetMiiNickname  s_fn_get_mii_nickname = nullptr;
 static FnGetFeeling      s_fn_get_feeling      = nullptr;
+static FnGetAppData      s_fn_get_appdata      = nullptr;
 
 // nn::olv::UploadPostDataByPostApp — interactive post creation applet
 using FnSetWork        = void    (*)(void *, uint8_t *, uint32_t);
@@ -71,6 +73,7 @@ using FnSetFlags       = void    (*)(void *, uint32_t);
 using FnSetTopicTag    = void    (*)(void *, const uint16_t *);  // UTF-16 topic label
 using FnSetSearchKey   = void    (*)(void *, const uint16_t *, uint8_t);  // UTF-16 search key + index
 using FnSetCommunityId = void    (*)(void *, uint32_t);
+using FnSetAppData     = int32_t (*)(void *, const uint8_t *, uint32_t);  // SetAppData(buf, size)
 using FnUploadPost     = int32_t (*)(const void *);
 static FnCtor          s_fn_ctor_upload    = nullptr;
 static FnSetWork       s_fn_set_work       = nullptr;
@@ -79,7 +82,19 @@ static FnSetFlags      s_fn_set_flags      = nullptr;
 static FnSetTopicTag   s_fn_set_topic      = nullptr;
 static FnSetSearchKey  s_fn_set_search     = nullptr;
 static FnSetCommunityId s_fn_set_community = nullptr;
+static FnSetAppData    s_fn_set_appdata    = nullptr;
 static FnUploadPost    s_fn_upload_post    = nullptr;
+
+// Binary app-data payload embedded in every post we create (16 bytes, well under 1 KB).
+// Lets readers anchor posts to their track timestamp.
+struct __attribute__((packed)) PostMeta {
+    char     magic[4];    // "SWIU"
+    uint8_t  version;     // 1
+    uint8_t  _pad[3];
+    uint32_t position_ms;
+    uint32_t duration_ms;
+};
+static_assert(sizeof(PostMeta) == 16, "PostMeta must be 16 bytes");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -185,13 +200,17 @@ bool init() {
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
         "GetFeeling__Q3_2nn3olv18DownloadedDataBaseCFv",
         reinterpret_cast<void **>(&s_fn_get_feeling));
-    WHBLogPrintf("olv: dl community=%s maxnum=%s search=%s body=%s nickname=%s feeling=%s",
+    OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
+        "GetAppData__Q3_2nn3olv18DownloadedDataBaseCFPUcPUiUi",
+        reinterpret_cast<void **>(&s_fn_get_appdata));
+    WHBLogPrintf("olv: dl community=%s maxnum=%s search=%s body=%s nickname=%s feeling=%s appdata=%s",
                  s_fn_dl_set_community ? "ok" : "missing",
                  s_fn_dl_set_max_num   ? "ok" : "missing",
                  s_fn_dl_set_search    ? "ok" : "missing",
                  s_fn_get_body_text    ? "ok" : "missing",
                  s_fn_get_mii_nickname ? "ok" : "missing",
-                 s_fn_get_feeling      ? "ok" : "missing");
+                 s_fn_get_feeling      ? "ok" : "missing",
+                 s_fn_get_appdata      ? "ok" : "missing");
 
     // Post-creation applet symbols.
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
@@ -224,9 +243,12 @@ bool init() {
         "SetCommunityId__Q3_2nn3olv19UploadPostDataParamFUi",
         reinterpret_cast<void **>(&s_fn_set_community));
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
+        "SetAppData__Q3_2nn3olv15UploadParamBaseFPCUcUi",
+        reinterpret_cast<void **>(&s_fn_set_appdata));
+    OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
         "UploadPostDataByPostApp__Q2_2nn3olvFPCQ3_2nn3olv28UploadPostDataByPostAppParam",
         reinterpret_cast<void **>(&s_fn_upload_post));
-    WHBLogPrintf("olv: post applet ctor=%s work=%s body=%s flags=%s topic=%s search=%s community=%s upload=%s",
+    WHBLogPrintf("olv: post applet ctor=%s work=%s body=%s flags=%s topic=%s search=%s community=%s appdata=%s upload=%s",
                  s_fn_ctor_upload    ? "ok" : "missing",
                  s_fn_set_work       ? "ok" : "missing",
                  s_fn_set_body       ? "ok" : "missing",
@@ -234,6 +256,7 @@ bool init() {
                  s_fn_set_topic      ? "ok" : "missing",
                  s_fn_set_search     ? "ok" : "missing",
                  s_fn_set_community  ? "ok" : "missing",
+                 s_fn_set_appdata    ? "ok" : "missing",
                  s_fn_upload_post    ? "ok" : "missing");
 
     // Initialize the network/SSL/account stack before calling nn_olv::Initialize.
@@ -329,6 +352,20 @@ std::vector<Post> fetch_posts(uint32_t community_id, uint32_t limit,
                     post.feeling = s_fn_get_feeling
                         ? std::max(0, std::min(5, (int)s_fn_get_feeling(p)))
                         : 0;
+                    if (s_fn_get_appdata) {
+                        PostMeta meta = {};
+                        uint32_t sz = 0;
+                        int32_t r = s_fn_get_appdata(p, reinterpret_cast<uint8_t *>(&meta),
+                                                      &sz, sizeof(meta));
+                        if ((r == 0 || (uint32_t)r == 0x01100080u)
+                            && sz >= sizeof(meta)
+                            && meta.magic[0] == 'S' && meta.magic[1] == 'W'
+                            && meta.magic[2] == 'I' && meta.magic[3] == 'U'
+                            && meta.version == 1) {
+                            post.position_ms = meta.position_ms;
+                            post.duration_ms = meta.duration_ms;
+                        }
+                    }
                     out.push_back(std::move(post));
                 }
                 WHBLogPrintf("olv: fetch ok, %zu posts", out.size());
@@ -341,7 +378,8 @@ std::vector<Post> fetch_posts(uint32_t community_id, uint32_t limit,
 }
 
 void open_post_applet(const std::string &body_utf8, bool is_explicit,
-                      const std::string &title, const std::string &search_key) {
+                      const std::string &title, const std::string &search_key,
+                      uint32_t position_ms, uint32_t duration_ms) {
     if (!s_fn_ctor_upload || !s_fn_set_work || !s_fn_set_body || !s_fn_upload_post) {
         WHBLogPrint("olv: post applet symbols not available");
         return;
@@ -379,6 +417,17 @@ void open_post_applet(const std::string &body_utf8, bool is_explicit,
     // DownloadedDataBase read-side flag (0x200).
     if (is_explicit && s_fn_set_flags)
         s_fn_set_flags(s_upload_param, 0x00000001u);
+
+    // Embed track-timestamp metadata so clients can anchor the post to a position.
+    if (s_fn_set_appdata) {
+        PostMeta meta = {};
+        meta.magic[0] = 'S'; meta.magic[1] = 'W';
+        meta.magic[2] = 'I'; meta.magic[3] = 'U';
+        meta.version     = 1;
+        meta.position_ms = position_ms;
+        meta.duration_ms = duration_ms;
+        s_fn_set_appdata(s_upload_param, reinterpret_cast<const uint8_t *>(&meta), sizeof(meta));
+    }
 
     int32_t rc = s_fn_upload_post(s_upload_param);
     WHBLogPrintf("olv: UploadPostDataByPostApp → 0x%08X", (uint32_t)rc);

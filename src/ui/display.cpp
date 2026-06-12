@@ -137,6 +137,15 @@ void Display::shutdown() {
 void Display::set_waiting() {
     std::lock_guard<std::mutex> lk(mu_);
     waiting_ = true;
+    error_msg_.clear();
+    title_ = artist_ = art_url_ = "";
+    pos_ms_ = dur_ms_ = 0; playing_ = false;
+}
+
+void Display::set_error(const std::string &msg) {
+    std::lock_guard<std::mutex> lk(mu_);
+    waiting_ = true;
+    error_msg_ = msg;
     title_ = artist_ = art_url_ = "";
     pos_ms_ = dur_ms_ = 0; playing_ = false;
 }
@@ -326,6 +335,7 @@ void Display::render_to(SDL_Renderer *r, int w, int h) {
         snap_waiting  = waiting_;
         snap_controls = controls_;
         snap_olv      = olv_visible_;
+        snap_error_   = error_msg_;
     }
 
     if (bg_tex_) {
@@ -344,10 +354,17 @@ void Display::render_to(SDL_Renderer *r, int w, int h) {
 }
 
 void Display::render_waiting(SDL_Renderer *r, int w, int h) {
-    update_label(lc_wait_[0], r, font_lg_,
-                 "Waiting for Spotify\xe2\x80\xa6", Theme::TEXT_DIM);
-    update_label(lc_wait_[1], r, font_md_,
-                 "Open Spotify and select this device", Theme::TEXT_HINT);
+    if (snap_error_.empty()) {
+        update_label(lc_wait_[0], r, font_lg_,
+                     "Waiting for Spotify\xe2\x80\xa6", Theme::TEXT_DIM);
+        update_label(lc_wait_[1], r, font_md_,
+                     "Open Spotify and select this device", Theme::TEXT_HINT);
+    } else {
+        constexpr SDL_Color WARN = {220, 80, 40, 255};
+        update_label(lc_wait_[0], r, font_lg_, snap_error_.c_str(), WARN);
+        update_label(lc_wait_[1], r, font_md_,
+                     "spotify-wiiu.nicochristmann.net", Theme::TEXT_HINT);
+    }
     draw_label(r, lc_wait_[0], 0, h / 2 - 14, w / 2);
     draw_label(r, lc_wait_[1], 0, h / 2 + 16, w / 2);
 }
@@ -376,8 +393,8 @@ void Display::render_controls(SDL_Renderer *r, int w, int h) {
         { "Y",           "Repeat"                      },
         { "Up / Down",   "Crystalizer On / Off"        },
         { "Left / Right","Crystalizer Strength"        },
-        { "Stick R",     "Toggle Miiverse posts"        },
-        { "Stick L",     "Post to Miiverse"            },
+        { "Stick R",     "Open post in Roséverse"       },
+        { "Stick L",     "Post to Roséverse"           },
         { "B",           "This screen"                 },
     };
     static constexpr Row wiimote[] = {
