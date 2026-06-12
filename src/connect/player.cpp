@@ -635,11 +635,11 @@ void Player::handle_touch(const void *vpad_status_ptr) {
     const VPADStatus &vpad = *static_cast<const VPADStatus *>(vpad_status_ptr);
 
     VPADTouchData tp{};
-    VPADGetTPCalibratedPoint(VPAD_CHAN_0, &tp, &vpad.tpNormal);
+    // VPAD_TP_1280X720 returns coordinates already in TV/framebuffer space (1280×720)
+    VPADGetTPCalibratedPointEx(VPAD_CHAN_0, VPAD_TP_1280X720, &tp, &vpad.tpNormal);
 
-    // Scale from DRC physical (854×480) to framebuffer space (1280×720)
-    const int fx = (int)tp.x * 1280 / 854;
-    const int fy = (int)tp.y * 720  / 480;
+    const int fx = (int)tp.x;
+    const int fy = (int)tp.y;
 
     if (!tp.touched) {
         if (touch_.active && !touch_.consumed && spirc_) {
