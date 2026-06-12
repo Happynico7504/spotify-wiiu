@@ -596,13 +596,15 @@ int AudioPipeline::position_ms() const {
 
 // Same path as CACHE_BASE above — reuse directly so there's one source of truth.
 #define CACHE_GC_BASE    CACHE_BASE
-#define CACHE_CONFIG     CACHE_BASE "/.plugin_config"
 static constexpr int    CACHE_GC_INTERVAL_SEC = 3600;  // 1 hour
 
 // Read max_age_days from the plugin config file; fall back to 3 if absent.
 static time_t read_max_age_secs() {
     int max_age_days = 3;
-    FILE *f = fopen(CACHE_CONFIG, "r");
+    // Build the path at runtime — CACHE_BASE is a const char*, not a macro literal.
+    char config_path[256];
+    snprintf(config_path, sizeof(config_path), "%s/.plugin_config", CACHE_BASE);
+    FILE *f = fopen(config_path, "r");
     if (f) {
         int enabled = 1, interval = 60;
         fscanf(f, "enabled=%d\ninterval_min=%d\nmax_age_days=%d",
