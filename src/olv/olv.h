@@ -23,6 +23,34 @@ struct Post {
     std::vector<uint8_t> memo;
 };
 
+// ── Stamp pack support ────────────────────────────────────────────────────────
+
+struct Pack {
+    std::string id;           // unique key, e.g. "official"
+    std::string name;         // display name
+    std::string description;
+    std::string base_url;     // raw base URL; stamp1.png…stampN.png appended
+};
+
+// Fetch available packs from the registry (blocking, returns empty on failure).
+std::vector<Pack> fetch_stamp_packs();
+
+// Number of stamps currently cached for this pack.
+// For "official" counts /vol/content/stamps/; for others counts the SD cache.
+int cached_stamp_count(const std::string &pack_id);
+
+// Download pack to SD card (blocking). Returns number of stamps downloaded.
+int download_stamp_pack(const Pack &pack);
+
+// Load stamps for pack_id into the stamp buffers (replaces current set).
+void load_stamp_pack(const std::string &pack_id);
+
+// Persist / retrieve the selected pack ID on SD card.
+void        save_selected_pack(const std::string &pack_id);
+std::string load_selected_pack();  // returns "official" if no selection saved
+
+// ── Core OLV ─────────────────────────────────────────────────────────────────
+
 // Detect Roséverse via discovery endpoint, load nn_olv.rpl, initialise.
 // Blocks on network. Returns true iff everything succeeded.
 // Must be called from a background thread (never the main/render thread).

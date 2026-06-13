@@ -69,6 +69,9 @@ private:
     };
     TouchState touch_;
 
+    // Show a stamp pack picker overlay; returns false if user cancelled.
+    bool show_stamp_pack_picker();
+
     void kill_connection();   // drop AP/Spirc after background timeout
 
     enum class State { WaitingForUser, Connecting, Ready, Playing };

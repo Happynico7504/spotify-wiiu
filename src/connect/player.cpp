@@ -624,7 +624,7 @@ void Player::handle_buttons(uint32_t trigger) {
         if (has_post) OLV::open_overlay(post_id);
     }
     if ((trigger & VPAD_BUTTON_STICK_L) && OLV::is_available() && spirc_playing_) {
-        // ♪ Title — Artist  (UTF-8: ♪ = \xe2\x99\xaa, — = \xe2\x80\x94)
+        if (!show_stamp_pack_picker()) return;
         const std::string &post_key = isrc_.empty() ? track_id_ : isrc_;
         OLV::open_post_applet("", track_explicit_, track_title_ + " - " + track_artist_, post_key,
                               (uint32_t)std::max(0, audio_->position_ms()), (uint32_t)track_dur_ms_);
@@ -896,6 +896,116 @@ void Player::olv_fetch(uint32_t cid) {
         olv_show_current();
     }
     olv_fetching_ = false;
+}
+
+// ── Stamp pack picker ─────────────────────────────────────────────────────────
+
+bool Player::show_stamp_pack_picker() {
+    SDL_Renderer *ren = display_.renderer();
+    TTF_Font *font_md = display_.font_medium();
+    TTF_Font *font_sm = display_.font_small();
+    if (!ren || !font_md) return true;  // no display yet, just proceed
+
+    auto packs = OLV::fetch_stamp_packs();
+    if (packs.empty()) return true;  // no registry, proceed with loaded stamps
+
+    std::string current = OLV::load_selected_pack();
+    int sel = 0;
+    for (int i = 0; i < (int)packs.size(); ++i)
+        if (packs[i].id == current) { sel = i; break; }
+
+    // Render a text item using TTF, then free immediately.
+    auto draw_text = [&](TTF_Font *f, const char *txt, SDL_Color col, int x, int y) {
+        if (!f || !txt || !*txt) return;
+        SDL_Surface *s = TTF_RenderUTF8_Blended(f, txt, col);
+        if (!s) return;
+        SDL_Texture *t = SDL_CreateTextureFromSurface(ren, s);
+        SDL_Rect r = {x, y, s->w, s->h};
+        SDL_RenderCopy(ren, t, nullptr, &r);
+        SDL_DestroyTexture(t);
+        SDL_FreeSurface(s);
+    };
+
+    SDL_Color white  = {255, 255, 255, 255};
+    SDL_Color green  = { 30, 215,  96, 255};
+    SDL_Color gray   = {160, 160, 160, 255};
+
+    auto render_frame = [&](const char *status) {
+        SDL_SetRenderDrawColor(ren, 10, 10, 20, 255);
+        SDL_RenderClear(ren);
+
+        draw_text(font_md, "Select Stamp Pack", white, 100, 60);
+
+        for (int i = 0; i < (int)packs.size(); ++i) {
+            int y = 150 + i * 80;
+            bool is_sel = (i == sel);
+
+            if (is_sel) {
+                SDL_SetRenderDrawColor(ren, 35, 35, 50, 255);
+                SDL_Rect row = {80, y - 8, 1100, 64};
+                SDL_RenderFillRect(ren, &row);
+                SDL_SetRenderDrawColor(ren, 30, 215, 96, 255);
+                SDL_Rect bar = {80, y - 8, 4, 64};
+                SDL_RenderFillRect(ren, &bar);
+            }
+
+            draw_text(font_md, packs[i].name.c_str(), is_sel ? green : white, 100, y);
+            if (!packs[i].description.empty())
+                draw_text(font_sm, packs[i].description.c_str(), gray, 100, y + 32);
+
+            int n = OLV::cached_stamp_count(packs[i].id);
+            char hint[48];
+            if (n > 0) snprintf(hint, sizeof(hint), "%d stamp%s cached", n, n == 1 ? "" : "s");
+            else       snprintf(hint, sizeof(hint), "not cached");
+            draw_text(font_sm, hint, gray, 900, y + 20);
+        }
+
+        if (status && *status)
+            draw_text(font_md, status, green, 100, 150 + (int)packs.size() * 80 + 20);
+
+        draw_text(font_sm, "Up/Down: Navigate     A: Select     B: Cancel",
+                  gray, 100, 660);
+
+        SDL_RenderPresent(ren);
+    };
+
+    VPADStatus    vpad{};
+    VPADReadError verr{};
+
+    while (WHBProcIsRunning()) {
+        VPADRead(VPAD_CHAN_0, &vpad, 1, &verr);
+
+        if (vpad.trigger & VPAD_BUTTON_UP)
+            sel = (sel - 1 + (int)packs.size()) % (int)packs.size();
+        if (vpad.trigger & VPAD_BUTTON_DOWN)
+            sel = (sel + 1) % (int)packs.size();
+        if (vpad.trigger & VPAD_BUTTON_B)
+            return false;
+
+        if (vpad.trigger & VPAD_BUTTON_A) {
+            const auto &pack = packs[sel];
+            if (OLV::cached_stamp_count(pack.id) == 0) {
+                render_frame("Downloading stamps...");
+                if (OLV::download_stamp_pack(pack) == 0) {
+                    render_frame("Download failed — press A to retry or B to cancel.");
+                    while (WHBProcIsRunning()) {
+                        VPADRead(VPAD_CHAN_0, &vpad, 1, &verr);
+                        if (vpad.trigger & VPAD_BUTTON_B) return false;
+                        if (vpad.trigger & VPAD_BUTTON_A) break;
+                        OSSleepTicks(OSMillisecondsToTicks(16));
+                    }
+                    continue;
+                }
+            }
+            OLV::load_stamp_pack(pack.id);
+            OLV::save_selected_pack(pack.id);
+            return true;
+        }
+
+        render_frame("");
+        OSSleepTicks(OSMillisecondsToTicks(16));
+    }
+    return false;
 }
 
 } // namespace Connect

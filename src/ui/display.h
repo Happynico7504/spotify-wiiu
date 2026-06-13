@@ -28,6 +28,11 @@ public:
     void shutdown();
     void render();   // call each frame from main thread
 
+    // Raw SDL objects — valid after init(), null before.
+    SDL_Renderer *renderer()    const { return tv_ren_; }
+    TTF_Font     *font_medium() const { return font_md_; }
+    TTF_Font     *font_small()  const { return font_sm_; }
+
     // ── state setters (thread-safe) ──────────────────────────────────────────
     void set_waiting();   // "Waiting for Spotify…" before any session
     void set_error(const std::string &msg);  // show error on the waiting screen

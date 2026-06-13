@@ -3,6 +3,7 @@
 #include <cstring>
 #include <algorithm>
 #include <string>
+#include <sys/stat.h>
 
 // stb_image declarations only — implementation lives in display.cpp.
 #define STBI_NO_THREAD_LOCALS
@@ -12,13 +13,15 @@
 #include <coreinit/dynload.h>
 #include <sysapp/switch.h>
 #include <whb/log.h>
-
+#include <whb/sdcard.h>
 
 #include <nn/ac.h>
 #include <nn/act.h>
 #include <nsysnet/nssl.h>
 #include <coreinit/cache.h>
 #include <memory>
+#include <curl/curl.h>
+#include "cJSON/cJSON.h"
 
 namespace OLV {
 
@@ -227,6 +230,166 @@ static std::vector<uint8_t> make_stamp_tga(const uint8_t *src, int src_w, int sr
     return tga;
 }
 
+// ── Stamp pack helpers ────────────────────────────────────────────────────────
+
+static std::vector<uint8_t> http_get(const std::string &url) {
+    std::vector<uint8_t> out;
+    CURL *curl = curl_easy_init();
+    if (!curl) return out;
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
+        +[](char *p, size_t s, size_t n, void *d) -> size_t {
+            auto *v = static_cast<std::vector<uint8_t>*>(d);
+            v->insert(v->end(), (uint8_t*)p, (uint8_t*)p + s * n);
+            return s * n;
+        });
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA,      &out);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT,        15L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    CURLcode rc = curl_easy_perform(curl);
+    long code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+    curl_easy_cleanup(curl);
+    if (rc != CURLE_OK || code == 404) return {};
+    return out;
+}
+
+static std::string sd_pack_dir(const std::string &pack_id) {
+    const char *sd = WHBGetSdCardMountPath();
+    if (!sd) return {};
+    return std::string(sd) + "/wiiu/apps/spotify-wiiu/stamps/" + pack_id;
+}
+
+static std::string sd_selected_path() {
+    const char *sd = WHBGetSdCardMountPath();
+    if (!sd) return {};
+    return std::string(sd) + "/wiiu/apps/spotify-wiiu/stamps/.selected";
+}
+
+static void makedirs(const std::string &path) {
+    for (size_t i = 1; i < path.size(); ++i) {
+        if (path[i] == '/') {
+            std::string sub = path.substr(0, i);
+            mkdir(sub.c_str(), 0755);
+        }
+    }
+    mkdir(path.c_str(), 0755);
+}
+
+// Load stamps from a directory into s_stamp_bufs. Breaks on first missing file.
+static void load_stamps_from_dir(const std::string &dir) {
+    s_stamp_count = 0;
+    for (int i = 1; i <= k_MaxStamps; ++i) {
+        std::string path = dir + "/stamp" + std::to_string(i) + ".png";
+        FILE *fp = fopen(path.c_str(), "rb");
+        if (!fp) break;
+        fseek(fp, 0, SEEK_END); long sz = ftell(fp); rewind(fp);
+        std::vector<uint8_t> raw(sz);
+        fread(raw.data(), 1, sz, fp); fclose(fp);
+        int w = 0, h = 0, ch = 0;
+        uint8_t *rgba = stbi_load_from_memory(raw.data(), (int)raw.size(), &w, &h, &ch, 4);
+        if (!rgba) { WHBLogPrintf("olv: stamp %d decode failed", i); continue; }
+        auto tga = make_stamp_tga(rgba, w, h);
+        stbi_image_free(rgba);
+        if (!tga.empty()) {
+            memcpy(s_stamp_bufs[s_stamp_count], tga.data(), tga.size());
+            ++s_stamp_count;
+        }
+    }
+    WHBLogPrintf("olv: %d stamps loaded from %s", s_stamp_count, dir.c_str());
+}
+
+// ── Public pack API ───────────────────────────────────────────────────────────
+
+std::vector<Pack> fetch_stamp_packs() {
+    static const char *REGISTRY =
+        "https://raw.githubusercontent.com/Happynico7504/spotify-wiiu-miiverse-stamps/main/packs.json";
+    auto data = http_get(REGISTRY);
+    if (data.empty()) return {};
+    data.push_back(0);
+    cJSON *root = cJSON_Parse((char *)data.data());
+    if (!root) return {};
+
+    std::vector<Pack> out;
+    cJSON *arr = cJSON_GetObjectItem(root, "packs");
+    cJSON *item = nullptr;
+    cJSON_ArrayForEach(item, arr) {
+        Pack p;
+        auto gs = [&](const char *k, std::string &v) {
+            cJSON *n = cJSON_GetObjectItem(item, k);
+            if (cJSON_IsString(n)) v = n->valuestring;
+        };
+        gs("id", p.id); gs("name", p.name);
+        gs("description", p.description); gs("base_url", p.base_url);
+        if (!p.id.empty()) out.push_back(std::move(p));
+    }
+    cJSON_Delete(root);
+    return out;
+}
+
+int cached_stamp_count(const std::string &pack_id) {
+    std::string dir = (pack_id == "official")
+        ? "/vol/content/stamps"
+        : sd_pack_dir(pack_id);
+    if (dir.empty()) return 0;
+    int count = 0;
+    for (int i = 1; i <= k_MaxStamps; ++i) {
+        std::string path = dir + "/stamp" + std::to_string(i) + ".png";
+        FILE *f = fopen(path.c_str(), "rb");
+        if (!f) break;
+        fclose(f); count = i;
+    }
+    return count;
+}
+
+int download_stamp_pack(const Pack &pack) {
+    if (pack.base_url.empty()) return 0;
+    std::string dir = sd_pack_dir(pack.id);
+    if (dir.empty()) return 0;
+    makedirs(dir);
+    int count = 0;
+    for (int i = 1; i <= k_MaxStamps; ++i) {
+        std::string url = pack.base_url + "stamp" + std::to_string(i) + ".png";
+        auto bytes = http_get(url);
+        if (bytes.empty()) break;
+        std::string path = dir + "/stamp" + std::to_string(i) + ".png";
+        FILE *f = fopen(path.c_str(), "wb");
+        if (f) { fwrite(bytes.data(), 1, bytes.size(), f); fclose(f); count = i; }
+    }
+    WHBLogPrintf("olv: downloaded %d stamps to %s", count, dir.c_str());
+    return count;
+}
+
+void load_stamp_pack(const std::string &pack_id) {
+    std::string dir = (pack_id == "official")
+        ? "/vol/content/stamps"
+        : sd_pack_dir(pack_id);
+    if (!dir.empty()) load_stamps_from_dir(dir);
+}
+
+void save_selected_pack(const std::string &pack_id) {
+    std::string path = sd_selected_path();
+    if (path.empty()) return;
+    makedirs(path.substr(0, path.rfind('/')));
+    FILE *f = fopen(path.c_str(), "w");
+    if (f) { fputs(pack_id.c_str(), f); fclose(f); }
+}
+
+std::string load_selected_pack() {
+    std::string path = sd_selected_path();
+    if (path.empty()) return "official";
+    FILE *f = fopen(path.c_str(), "r");
+    if (!f) return "official";
+    char buf[64] = {};
+    fgets(buf, sizeof(buf), f);
+    fclose(f);
+    for (int i = (int)strlen(buf) - 1; i >= 0 && (buf[i] == '\n' || buf[i] == '\r'); --i)
+        buf[i] = '\0';
+    return buf[0] ? buf : "official";
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 bool init() {
@@ -387,30 +550,7 @@ bool init() {
             WHBLogPrintf("olv: Initialize → 0x%08X", (uint32_t)r);
             // 0x01100080 is Roséverse's success code.
             if (r == 0 || (uint32_t)r == 0x01100080u) {
-                // Load stamps from /vol/content/stamps/stamp1.png upward;
-                // stop at the first missing file (sequential naming assumed).
-                s_stamp_count = 0;
-                for (int i = 1; i <= k_MaxStamps; ++i) {
-                    char path[64];
-                    snprintf(path, sizeof(path), "/vol/content/stamps/stamp%d.png", i);
-                    FILE *fp = fopen(path, "rb");
-                    if (!fp) break;
-                    fseek(fp, 0, SEEK_END); long sz = ftell(fp); rewind(fp);
-                    std::vector<uint8_t> raw(sz);
-                    fread(raw.data(), 1, sz, fp); fclose(fp);
-                    int w = 0, h = 0, ch = 0;
-                    uint8_t *rgba = stbi_load_from_memory(raw.data(), (int)raw.size(), &w, &h, &ch, 4);
-                    if (!rgba) { WHBLogPrintf("olv: stamp %d decode failed", i); continue; }
-                    auto tga = make_stamp_tga(rgba, w, h);
-                    stbi_image_free(rgba);
-                    if (!tga.empty()) {
-                        memcpy(s_stamp_bufs[s_stamp_count], tga.data(), tga.size());
-                        WHBLogPrintf("olv: loaded stamp %d (%dx%d) → buf[%d]",
-                                     i, w, h, s_stamp_count);
-                        ++s_stamp_count;
-                    }
-                }
-                WHBLogPrintf("olv: %d stamps loaded", s_stamp_count);
+                load_stamp_pack(load_selected_pack());
 
                 WHBLogPrint("olv: ready");
                 s_available = true;
