@@ -214,6 +214,7 @@ static std::vector<uint8_t> b64_decode(const char *s, size_t len) {
 //   ProvidedTrack.uid           = 2
 
 struct ClusterState {
+    bool                     has_cluster         = false;  // ClusterUpdate.cluster was present
     std::string              active_device_id;
     std::string              track_uri;
     std::string              track_uid;
@@ -235,6 +236,7 @@ static ClusterState parse_cluster_update(const std::vector<uint8_t> &data) {
     uint32_t f; uint8_t w;
     while (top.next(f, w)) {
         if (f == 1 && w == 2) {                        // cluster
+            cs.has_cluster = true;
             PRd cl; top.enter(cl);
             while (cl.next(f, w)) {
                 if (f == 2 && w == 2) {                // active_device_id
@@ -873,19 +875,31 @@ void Spirc::handle_dealer_message(const std::string &uri,
     if (uri.compare(0, sizeof(CLUSTER) - 1, CLUSTER) != 0) return;
 
     ClusterState cs = parse_cluster_update(payload);
-    WHBLogPrintf("spirc: cluster upd active='%.20s' track='%.60s' playing=%d",
-                 cs.active_device_id.c_str(), cs.track_uri.c_str(), (int)cs.is_playing);
+    WHBLogPrintf("spirc: cluster upd has_cluster=%d active='%.40s' playing=%d",
+                 (int)cs.has_cluster, cs.active_device_id.c_str(), (int)cs.is_playing);
+    WHBLogPrintf("spirc: cluster upd ours='%.40s'", device_id_.c_str());
 
-    // Empty active_device_id means the cluster update carried no device info — ignore.
-    if (cs.active_device_id.empty()) return;
-
-    if (cs.active_device_id != device_id_) {
-        WHBLogPrintf("spirc: cluster skip: active='%.40s' ours='%.40s'",
-                     cs.active_device_id.c_str(), device_id_.c_str());
+    // No cluster sub-message: librespot treats this as became_inactive when active.
+    if (!cs.has_cluster) {
         if (playing_ || !current_track_uri_.empty()) {
-            WHBLogPrint("spirc: became inactive — stopping");
+            WHBLogPrint("spirc: no-cluster update while active — became inactive");
             playing_ = false;
             current_track_uri_.clear();
+            if (callbacks_.on_became_inactive) callbacks_.on_became_inactive();
+        }
+        return;
+    }
+
+    // active_device_id empty = no device is currently active (treat as became_inactive).
+    // active_device_id != ours = another device took over.
+    // Both cases: we are no longer the active device.
+    if (cs.active_device_id != device_id_) {
+        WHBLogPrintf("spirc: became inactive (active='%.40s')",
+                     cs.active_device_id.c_str());
+        if (playing_ || !current_track_uri_.empty()) {
+            playing_ = false;
+            current_track_uri_.clear();
+            put_connect_state_async(4, false, pos_ms_, vol_pct_);
             if (callbacks_.on_became_inactive) callbacks_.on_became_inactive();
         }
         return;
@@ -1395,7 +1409,7 @@ void Spirc::notify(bool playing, int pos_ms, int vol_pct) {
     else if (vol_changed)
         put_connect_state_async(5 /* VOLUME_CHANGED */, playing, pos_ms, vol_pct);
     else if (playing && helo_done_.load() &&
-             now_ms - last_state_push_ms_ >= 1000)
+             now_ms - last_state_push_ms_ >= 30000)
         put_connect_state_async(4 /* PLAYER_STATE_CHANGED */, playing, pos_ms, vol_pct);
 }
 
@@ -1598,6 +1612,14 @@ void Spirc::handle_mercury_event(const std::vector<uint8_t> &payload) {
                 put_connect_state_async(5 /* VOLUME_CHANGED */, playing_, pos_ms_, pct);
             } else vrd.skip(vw);
         }
+        return;
+    }
+
+    // ClusterUpdate can also arrive via Mercury (older path / reconnect window).
+    // Reuse the Dealer handler — same binary proto format.
+    static constexpr char CL[] = "hm://connect-state/v1/cluster";
+    if (uri.compare(0, sizeof(CL) - 1, CL) == 0) {
+        handle_dealer_message(uri, parts[1]);
         return;
     }
 

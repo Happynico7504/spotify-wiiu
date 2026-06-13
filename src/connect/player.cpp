@@ -87,13 +87,19 @@ void Player::run() {
             // Signal the cache-sweep WUPS plugin to run a sweep.
             FILE *flag = fopen("/vol/external01/spotify_cache/.sweep_now", "w");
             if (flag) fclose(flag);
-            WHBLogPrint("player: entered background — wrote cache sweep flag");
+            WHBLogPrintf("player: entered background (uptime=%ds)", s);
             return 0;
         }, this, 100);
     ProcUIRegisterCallback(PROCUI_CALLBACK_ACQUIRE,
         [](void *ctx) -> uint32_t {
-            static_cast<Player*>(ctx)->background_since_s_.store(0);
-            WHBLogPrint("player: returned to foreground");
+            auto *p = static_cast<Player*>(ctx);
+            int32_t bg = p->background_since_s_.load();
+            int32_t now_s = (int32_t)(OSGetSystemTick() / OSSecondsToTicks(1));
+            p->background_since_s_.store(0);
+            if (bg != 0)
+                WHBLogPrintf("player: returned to foreground (was bg for ~%ds)", now_s - bg);
+            else
+                WHBLogPrint("player: returned to foreground");
             return 0;
         }, this, 100);
 
@@ -149,12 +155,17 @@ void Player::run() {
                 OSSleepTicks(OSSecondsToTicks(1));
             int32_t bg = background_since_s_.load();
             int32_t now_s = (int32_t)(OSGetSystemTick() / OSSecondsToTicks(1));
-            if (bg != 0 && now_s - bg >= BG_KILL_SECS
-                        && state_.load() != State::WaitingForUser) {
-                WHBLogPrintf("player: background timeout (%ds) — dropping connection",
-                             BG_KILL_SECS);
-                background_since_s_.store(0);
-                kill_connection();
+            if (bg != 0 && state_.load() != State::WaitingForUser
+                        && !in_olv_applet_.load()) {
+                if (ProcUIInForeground()) {
+                    // RELEASE fired but ACQUIRE never cleared the flag — stale timer.
+                    background_since_s_.store(0);
+                } else if (now_s - bg >= BG_KILL_SECS) {
+                    WHBLogPrintf("player: background timeout (%ds elapsed) — dropping connection",
+                                 now_s - bg);
+                    background_since_s_.store(0);
+                    kill_connection();
+                }
             }
         }
     });
@@ -626,8 +637,11 @@ void Player::handle_buttons(uint32_t trigger) {
     if ((trigger & VPAD_BUTTON_STICK_L) && OLV::is_available() && spirc_playing_) {
         if (!show_stamp_pack_picker()) return;
         const std::string &post_key = isrc_.empty() ? track_id_ : isrc_;
+        in_olv_applet_.store(true);
         OLV::open_post_applet("", track_explicit_, track_title_ + " - " + track_artist_, post_key,
                               (uint32_t)std::max(0, audio_->position_ms()), (uint32_t)track_dur_ms_);
+        in_olv_applet_.store(false);
+        background_since_s_.store(0);
     }
 }
 
@@ -830,8 +844,11 @@ void Player::handle_pro_buttons(uint32_t trigger) {
     }
     if ((trigger & WPAD_PRO_BUTTON_STICK_L) && OLV::is_available() && spirc_playing_) {
         const std::string &post_key = isrc_.empty() ? track_id_ : isrc_;
+        in_olv_applet_.store(true);
         OLV::open_post_applet("", track_explicit_, track_title_ + " - " + track_artist_, post_key,
                               (uint32_t)std::max(0, audio_->position_ms()), (uint32_t)track_dur_ms_);
+        in_olv_applet_.store(false);
+        background_since_s_.store(0);
     }
     if ((trigger & WPAD_PRO_BUTTON_X) && spirc_) {
         spirc_->toggle_shuffle();
