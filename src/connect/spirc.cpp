@@ -722,7 +722,7 @@ void Spirc::put_connect_state_async(uint32_t reason, bool playing, int pos_ms, i
     std::vector<uint8_t> psr;
     pb_msg (psr, 2, device);
     pb_u32 (psr, 3, 2);
-    pb_bool(psr, 4, playing || !context_uri_.empty());
+    pb_bool(psr, 4, playing || !current_track_uri_.empty());
     pb_u32 (psr, 5, reason);
     if (sat > 0) pb_i64(psr, 9, sat);
     pb_i64 (psr, 12, proto_ms);
