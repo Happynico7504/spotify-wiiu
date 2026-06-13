@@ -107,7 +107,12 @@ static FnAddStampData  s_fn_add_stamp      = nullptr;
 static FnUploadPost    s_fn_upload_post    = nullptr;
 
 // Pre-encoded stamp TGAs loaded from /vol/content/stamps/ at init time.
-static std::vector<std::vector<uint8_t>> s_stamp_tgas;
+// Stored in 32-byte aligned static buffers — Wii U DMA requires this alignment.
+static constexpr int   k_MaxStamps    = 8;
+static constexpr int   k_StampTgaSize = 18 + 100 * 100 * 4;           // 40018
+static constexpr int   k_StampBufSize = (k_StampTgaSize + 31) & ~31;  // round up to 32-byte multiple = 40032
+alignas(32) static uint8_t s_stamp_bufs[k_MaxStamps][k_StampBufSize];
+static int s_stamp_count = 0;
 
 // Binary app-data payload embedded in every post we create (16 bytes, well under 1 KB).
 // Lets readers anchor posts to their track timestamp.
@@ -364,8 +369,8 @@ bool init() {
             if (r == 0 || (uint32_t)r == 0x01100080u) {
                 // Load pre-made stamps from /vol/content/stamps/stamp1.png … stamp8.png
                 // before marking OLV available so the post applet always sees a full set.
-                s_stamp_tgas.clear();
-                for (int i = 1; i <= 8; ++i) {
+                s_stamp_count = 0;
+                for (int i = 1; i <= k_MaxStamps; ++i) {
                     char path[64];
                     snprintf(path, sizeof(path), "/vol/content/stamps/stamp%d.png", i);
                     FILE *fp = fopen(path, "rb");
@@ -378,12 +383,15 @@ bool init() {
                     if (!rgba) { WHBLogPrintf("olv: stamp %d decode failed", i); continue; }
                     auto tga = make_stamp_tga(rgba, w, h);
                     stbi_image_free(rgba);
-                    if (!tga.empty()) {
-                        s_stamp_tgas.push_back(std::move(tga));
-                        WHBLogPrintf("olv: loaded stamp %d (%dx%d)", i, w, h);
+                    if (!tga.empty() && s_stamp_count < k_MaxStamps) {
+                        memcpy(s_stamp_bufs[s_stamp_count], tga.data(), tga.size());
+                        WHBLogPrintf("olv: loaded stamp %d (%dx%d) → buf[%d] @%p",
+                                     i, w, h, s_stamp_count,
+                                     (void *)s_stamp_bufs[s_stamp_count]);
+                        ++s_stamp_count;
                     }
                 }
-                WHBLogPrintf("olv: %zu stamps loaded", s_stamp_tgas.size());
+                WHBLogPrintf("olv: %d stamps loaded", s_stamp_count);
 
                 WHBLogPrint("olv: ready");
                 s_available = true;
@@ -542,15 +550,15 @@ void open_post_applet(const std::string &body_utf8, bool is_explicit,
     }
 
     // Add pre-loaded stamps so users can place them on their drawings.
-    // AddStampData expects a full TGA file (header + pixels).
+    // Buffers are 32-byte aligned static arrays; AddStampData gets full TGA (header + pixels).
     if (s_fn_add_stamp) {
         int added = 0;
-        for (const auto &tga : s_stamp_tgas) {
-            int32_t sr = s_fn_add_stamp(s_upload_param, tga.data(), (uint32_t)tga.size());
+        for (int i = 0; i < s_stamp_count; ++i) {
+            int32_t sr = s_fn_add_stamp(s_upload_param, s_stamp_bufs[i], k_StampTgaSize);
             if (sr == 0 || (uint32_t)sr == 0x01100080u) ++added;
-            else WHBLogPrintf("olv: AddStampData[%d] → 0x%08X", added, (uint32_t)sr);
+            else WHBLogPrintf("olv: AddStampData[%d] → 0x%08X", i, (uint32_t)sr);
         }
-        WHBLogPrintf("olv: %d/%zu stamps added to param", added, s_stamp_tgas.size());
+        WHBLogPrintf("olv: %d/%d stamps added to param", added, s_stamp_count);
     }
 
     int32_t rc = s_fn_upload_post(s_upload_param);
