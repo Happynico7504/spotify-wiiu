@@ -357,10 +357,8 @@ bool init() {
             WHBLogPrintf("olv: Initialize → 0x%08X", (uint32_t)r);
             // 0x01100080 is Roséverse's success code.
             if (r == 0 || (uint32_t)r == 0x01100080u) {
-                WHBLogPrint("olv: ready");
-                s_available = true;
-
-                // Load pre-made stamps from /vol/content/stamps/stamp1.png … stamp8.png.
+                // Load pre-made stamps from /vol/content/stamps/stamp1.png … stamp8.png
+                // before marking OLV available so the post applet always sees a full set.
                 s_stamp_tgas.clear();
                 for (int i = 1; i <= 8; ++i) {
                     char path[64];
@@ -382,6 +380,8 @@ bool init() {
                 }
                 WHBLogPrintf("olv: %zu stamps loaded", s_stamp_tgas.size());
 
+                WHBLogPrint("olv: ready");
+                s_available = true;
                 return true;
             }
         }
