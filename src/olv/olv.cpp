@@ -205,8 +205,8 @@ static std::vector<uint8_t> make_stamp_tga(const uint8_t *src, int src_w, int sr
         for (int x = 0; x < SW; ++x) {
             int sx = x * src_w / SW;
             const uint8_t *s = src + (sy * src_w + sx) * 4;
-            // Standard luminance: 0.299R + 0.587G + 0.114B (integer approximation)
-            uint8_t L = (uint8_t)((s[0] * 77 + s[1] * 150 + s[2] * 29) >> 8);
+            // Threshold to pure black/white (luminance > 127 → white, else black)
+            uint8_t L = ((s[0] * 77 + s[1] * 150 + s[2] * 29) >> 8) > 127 ? 255 : 0;
             dst[0] = L; dst[1] = L; dst[2] = L; dst[3] = s[3];
             dst += 4;
         }
