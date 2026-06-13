@@ -879,10 +879,10 @@ void Spirc::handle_dealer_message(const std::string &uri,
     if (cs.active_device_id != device_id_) {
         WHBLogPrintf("spirc: cluster skip: active='%.40s' ours='%.40s'",
                      cs.active_device_id.c_str(), device_id_.c_str());
-        if (playing_) {
+        if (playing_ || !current_track_uri_.empty()) {
             WHBLogPrint("spirc: became inactive — stopping");
             playing_ = false;
-            current_track_uri_.clear();  // don't suppress the next re-transfer for this track
+            current_track_uri_.clear();
             if (callbacks_.on_became_inactive) callbacks_.on_became_inactive();
         }
         return;
