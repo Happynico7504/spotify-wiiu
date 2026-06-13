@@ -241,32 +241,12 @@ void Player::run() {
                                 display_.set_olv_post(nullptr);
                             }
                         }
-                        // Refresh post list every 30 s.
-                        if (now - olv_last_advance_ >= OSSecondsToTicks(30)) {
-                            if (olv_fetch_thread_.joinable()) olv_fetch_thread_.join();
-                            olv_fetching_ = true;
-                            olv_fetch_thread_ = std::thread([this] {
-                                OSSetThreadAffinity(OSGetCurrentThread(),
-                                                    OS_THREAD_ATTRIB_AFFINITY_CPU0);
-                                olv_fetch(OLV::COMMUNITY_ID);
-                            });
-                        }
                     } else if (now - olv_last_advance_ >= OSSecondsToTicks(5)) {
                         // ── Time-based fallback ──────────────────────────────────────
                         // 5 s timer already exceeds the 3 s minimum; no extra check needed.
                         olv_last_advance_ = now;
                         olv_post_idx_ = (olv_post_idx_ + 1) % olv_posts_.size();
-                        if (olv_post_idx_ == 0) {
-                            if (olv_fetch_thread_.joinable()) olv_fetch_thread_.join();
-                            olv_fetching_ = true;
-                            olv_fetch_thread_ = std::thread([this] {
-                                OSSetThreadAffinity(OSGetCurrentThread(),
-                                                    OS_THREAD_ATTRIB_AFFINITY_CPU0);
-                                olv_fetch(OLV::COMMUNITY_ID);
-                            });
-                        } else {
-                            olv_show_current();
-                        }
+                        olv_show_current();
                     }
                 } else if (now - olv_last_advance_ >= OSSecondsToTicks(5)) {
                     // No posts yet — kick off initial fetch.
