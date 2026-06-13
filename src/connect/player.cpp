@@ -905,22 +905,11 @@ bool Player::show_stamp_pack_picker() {
     SDL_Renderer *ren = display_.renderer();
     TTF_Font *font_md = display_.font_medium();
     TTF_Font *font_sm = display_.font_small();
-    if (!ren || !font_md) return true;  // no display yet, just proceed
+    if (!ren || !font_md) return true;
 
-    auto packs = OLV::fetch_stamp_packs();
-    if (packs.empty()) return true;  // no registry, proceed with loaded stamps
+    auto all_packs = OLV::fetch_stamp_packs();
+    if (all_packs.empty()) return true;
 
-    OLV::Pack none_pack;
-    none_pack.id = "none"; none_pack.name = "No Stamps";
-    none_pack.description = "Post without stamps";
-    packs.insert(packs.begin(), none_pack);
-
-    std::string current = OLV::load_selected_pack();
-    int sel = 0;
-    for (int i = 0; i < (int)packs.size(); ++i)
-        if (packs[i].id == current) { sel = i; break; }
-
-    // Render a text item using TTF, then free immediately.
     auto draw_text = [&](TTF_Font *f, const char *txt, SDL_Color col, int x, int y) {
         if (!f || !txt || !*txt) return;
         SDL_Surface *s = TTF_RenderUTF8_Blended(f, txt, col);
@@ -932,57 +921,25 @@ bool Player::show_stamp_pack_picker() {
         SDL_FreeSurface(s);
     };
 
-    SDL_Color white  = {255, 255, 255, 255};
-    SDL_Color green  = { 30, 215,  96, 255};
-    SDL_Color gray   = {160, 160, 160, 255};
+    SDL_Color white = {255, 255, 255, 255};
+    SDL_Color green = { 30, 215,  96, 255};
+    SDL_Color gray  = {160, 160, 160, 255};
 
-    auto render_frame = [&](const char *status) {
+    VPADStatus    vpad{};
+    VPADReadError verr{};
+
+    auto show_msg = [&](const char *msg) {
         SDL_SetRenderDrawColor(ren, 10, 10, 20, 255);
         SDL_RenderClear(ren);
-
-        draw_text(font_md, "Select Stamp Pack", white, 100, 60);
-
-        for (int i = 0; i < (int)packs.size(); ++i) {
-            int y = 150 + i * 80;
-            bool is_sel = (i == sel);
-
-            if (is_sel) {
-                SDL_SetRenderDrawColor(ren, 35, 35, 50, 255);
-                SDL_Rect row = {80, y - 8, 1100, 64};
-                SDL_RenderFillRect(ren, &row);
-                SDL_SetRenderDrawColor(ren, 30, 215, 96, 255);
-                SDL_Rect bar = {80, y - 8, 4, 64};
-                SDL_RenderFillRect(ren, &bar);
-            }
-
-            draw_text(font_md, packs[i].name.c_str(), is_sel ? green : white, 100, y);
-            if (!packs[i].description.empty())
-                draw_text(font_sm, packs[i].description.c_str(), gray, 100, y + 32);
-
-            if (packs[i].id != "none") {
-                int n = OLV::cached_stamp_count(packs[i].id);
-                char hint[48];
-                if (n > 0) snprintf(hint, sizeof(hint), "%d stamp%s cached", n, n == 1 ? "" : "s");
-                else       snprintf(hint, sizeof(hint), "not cached");
-                draw_text(font_sm, hint, gray, 900, y + 20);
-            }
-        }
-
-        if (status && *status)
-            draw_text(font_md, status, green, 100, 150 + (int)packs.size() * 80 + 20);
-
-        draw_text(font_sm, "Up/Down: Navigate     A: Select     Y: Update     X: Delete     B: Cancel",
-                  gray, 100, 660);
-
+        draw_text(font_md, msg, green, 100, 360);
         SDL_RenderPresent(ren);
     };
 
-    // Download selected pack, retrying on failure. Returns false if user cancels.
     auto do_download = [&](const OLV::Pack &pack) -> bool {
         while (WHBProcIsRunning()) {
-            render_frame("Downloading stamps...");
+            show_msg("Downloading stamps...");
             if (OLV::download_stamp_pack(pack) > 0) return true;
-            render_frame("Download failed — press A to retry or B to cancel.");
+            show_msg("Download failed — press A to retry or B to cancel.");
             while (WHBProcIsRunning()) {
                 VPADRead(VPAD_CHAN_0, &vpad, 1, &verr);
                 if (vpad.trigger & VPAD_BUTTON_B) return false;
@@ -993,50 +950,149 @@ bool Player::show_stamp_pack_picker() {
         return false;
     };
 
-    VPADStatus    vpad{};
-    VPADReadError verr{};
-
-    while (WHBProcIsRunning()) {
-        VPADRead(VPAD_CHAN_0, &vpad, 1, &verr);
-
-        if (vpad.trigger & VPAD_BUTTON_UP)
-            sel = (sel - 1 + (int)packs.size()) % (int)packs.size();
-        if (vpad.trigger & VPAD_BUTTON_DOWN)
-            sel = (sel + 1) % (int)packs.size();
-        if (vpad.trigger & VPAD_BUTTON_B)
-            return false;
-
-        if (vpad.trigger & VPAD_BUTTON_A) {
-            const auto &pack = packs[sel];
-            if (pack.id != "none" && OLV::cached_stamp_count(pack.id) == 0 && !do_download(pack))
-                return false;
-            OLV::load_stamp_pack(pack.id);
-            OLV::save_selected_pack(pack.id);
-            return true;
-        }
-
-        if (vpad.trigger & VPAD_BUTTON_X && packs[sel].id != "none") {
-            const auto &pack = packs[sel];
-            if (OLV::cached_stamp_count(pack.id) > 0) {
-                OLV::delete_stamp_pack(pack.id);
-                if (OLV::load_selected_pack() == pack.id) {
-                    OLV::save_selected_pack("none");
-                    OLV::load_stamp_pack("none");
-                }
-                render_frame("Cache deleted.");
-                OSSleepTicks(OSMillisecondsToTicks(1200));
+    // Renders a titled list of packs with a highlight bar on the selected row.
+    auto render_screen = [&](const char *title, const std::vector<OLV::Pack> &items,
+                             int sel, const char *hints) {
+        SDL_SetRenderDrawColor(ren, 10, 10, 20, 255);
+        SDL_RenderClear(ren);
+        draw_text(font_md, title, white, 100, 60);
+        if (items.empty())
+            draw_text(font_sm, "Nothing here yet.", gray, 100, 200);
+        for (int i = 0; i < (int)items.size(); ++i) {
+            int y = 150 + i * 80;
+            bool is_sel = (i == sel);
+            if (is_sel) {
+                SDL_SetRenderDrawColor(ren, 35, 35, 50, 255);
+                SDL_Rect row = {80, y - 8, 1100, 64};
+                SDL_RenderFillRect(ren, &row);
+                SDL_SetRenderDrawColor(ren, 30, 215, 96, 255);
+                SDL_Rect bar = {80, y - 8, 4, 64};
+                SDL_RenderFillRect(ren, &bar);
+            }
+            draw_text(font_md, items[i].name.c_str(), is_sel ? green : white, 100, y);
+            if (!items[i].description.empty())
+                draw_text(font_sm, items[i].description.c_str(), gray, 100, y + 32);
+            if (items[i].id != "none") {
+                int n = OLV::cached_stamp_count(items[i].id);
+                char buf[48] = {};
+                if (n > 0) snprintf(buf, sizeof(buf), "%d stamp%s", n, n == 1 ? "" : "s");
+                else        snprintf(buf, sizeof(buf), "not installed");
+                draw_text(font_sm, buf, gray, 900, y + 20);
             }
         }
+        draw_text(font_sm, hints, gray, 100, 660);
+        SDL_RenderPresent(ren);
+    };
 
-        if (vpad.trigger & VPAD_BUTTON_Y && packs[sel].id != "none") {
-            const auto &pack = packs[sel];
-            if (!do_download(pack)) return false;
-            OLV::load_stamp_pack(pack.id);
-            OLV::save_selected_pack(pack.id);
+    // ── Stamp Store: browse and download packs not yet on SD ─────────────────
+    auto run_store = [&]() {
+        int sel = 0;
+        while (WHBProcIsRunning()) {
+            std::vector<OLV::Pack> available;
+            for (const auto &p : all_packs)
+                if (OLV::cached_stamp_count(p.id) == 0) available.push_back(p);
+            sel = std::min(sel, std::max(0, (int)available.size() - 1));
+            render_screen("Stamp Store", available, sel,
+                          "Up/Down: Navigate     A: Download     B: Back");
+            VPADRead(VPAD_CHAN_0, &vpad, 1, &verr);
+            if (vpad.trigger & VPAD_BUTTON_B) return;
+            if (vpad.trigger & VPAD_BUTTON_UP)
+                sel = (sel - 1 + std::max(1, (int)available.size())) % std::max(1, (int)available.size());
+            if (vpad.trigger & VPAD_BUTTON_DOWN)
+                sel = (sel + 1) % std::max(1, (int)available.size());
+            if ((vpad.trigger & VPAD_BUTTON_A) && !available.empty()) {
+                if (do_download(available[sel])) {
+                    show_msg("Downloaded! Press B to return.");
+                    while (WHBProcIsRunning()) {
+                        VPADRead(VPAD_CHAN_0, &vpad, 1, &verr);
+                        if (vpad.trigger & VPAD_BUTTON_B) return;
+                        OSSleepTicks(OSMillisecondsToTicks(16));
+                    }
+                }
+            }
+            OSSleepTicks(OSMillisecondsToTicks(16));
+        }
+    };
+
+    // ── Pack Manager: update or delete installed packs ────────────────────────
+    auto run_manager = [&]() {
+        int sel = 0;
+        while (WHBProcIsRunning()) {
+            std::vector<OLV::Pack> installed;
+            for (const auto &p : all_packs)
+                if (OLV::cached_stamp_count(p.id) > 0) installed.push_back(p);
+            sel = std::min(sel, std::max(0, (int)installed.size() - 1));
+            render_screen("Pack Manager", installed, sel,
+                          "Up/Down: Navigate     Y: Update     X: Delete     B: Back");
+            VPADRead(VPAD_CHAN_0, &vpad, 1, &verr);
+            if (vpad.trigger & VPAD_BUTTON_B) return;
+            if (vpad.trigger & VPAD_BUTTON_UP)
+                sel = (sel - 1 + std::max(1, (int)installed.size())) % std::max(1, (int)installed.size());
+            if (vpad.trigger & VPAD_BUTTON_DOWN)
+                sel = (sel + 1) % std::max(1, (int)installed.size());
+            if (!installed.empty()) {
+                if (vpad.trigger & VPAD_BUTTON_Y) {
+                    if (do_download(installed[sel])) {
+                        show_msg("Updated.");
+                        OSSleepTicks(OSMillisecondsToTicks(800));
+                    }
+                }
+                if (vpad.trigger & VPAD_BUTTON_X) {
+                    const std::string &pid = installed[sel].id;
+                    OLV::delete_stamp_pack(pid);
+                    if (OLV::load_selected_pack() == pid) {
+                        OLV::save_selected_pack("none");
+                        OLV::load_stamp_pack("none");
+                    }
+                    show_msg("Pack deleted.");
+                    OSSleepTicks(OSMillisecondsToTicks(800));
+                    sel = 0;
+                }
+            }
+            OSSleepTicks(OSMillisecondsToTicks(16));
+        }
+    };
+
+    // ── Main Picker: No Stamps + installed packs ──────────────────────────────
+    OLV::Pack none_pack;
+    none_pack.id = "none"; none_pack.name = "No Stamps";
+    none_pack.description = "Post without stamps";
+
+    // Restore cursor to previously selected pack.
+    int sel = 0;
+    {
+        std::string current = OLV::load_selected_pack();
+        if (current != "none") {
+            int idx = 1;
+            for (const auto &p : all_packs) {
+                if (p.id == current && OLV::cached_stamp_count(p.id) > 0) { sel = idx; break; }
+                ++idx;
+            }
+        }
+    }
+
+    while (WHBProcIsRunning()) {
+        std::vector<OLV::Pack> installed;
+        installed.push_back(none_pack);
+        for (const auto &p : all_packs)
+            if (OLV::cached_stamp_count(p.id) > 0) installed.push_back(p);
+        sel = std::min(sel, (int)installed.size() - 1);
+
+        render_screen("Select Stamp Pack", installed, sel,
+                      "Up/Down: Navigate     A: Use     +: Store     -: Manage     B: Cancel");
+        VPADRead(VPAD_CHAN_0, &vpad, 1, &verr);
+        if (vpad.trigger & VPAD_BUTTON_B) return false;
+        if (vpad.trigger & VPAD_BUTTON_UP)
+            sel = (sel - 1 + (int)installed.size()) % (int)installed.size();
+        if (vpad.trigger & VPAD_BUTTON_DOWN)
+            sel = (sel + 1) % (int)installed.size();
+        if (vpad.trigger & VPAD_BUTTON_A) {
+            OLV::load_stamp_pack(installed[sel].id);
+            OLV::save_selected_pack(installed[sel].id);
             return true;
         }
-
-        render_frame("");
+        if (vpad.trigger & VPAD_BUTTON_PLUS)  run_store();
+        if (vpad.trigger & VPAD_BUTTON_MINUS) run_manager();
         OSSleepTicks(OSMillisecondsToTicks(16));
     }
     return false;
