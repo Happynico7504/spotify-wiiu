@@ -335,9 +335,7 @@ std::vector<Pack> fetch_stamp_packs() {
 }
 
 int cached_stamp_count(const std::string &pack_id) {
-    std::string dir = (pack_id == "official")
-        ? "/vol/content/stamps"
-        : sd_pack_dir(pack_id);
+    std::string dir = sd_pack_dir(pack_id);
     if (dir.empty()) return 0;
     int count = 0;
     for (int i = 1; i <= k_MaxStamps; ++i) {
@@ -381,9 +379,7 @@ int download_stamp_pack(const Pack &pack) {
 }
 
 void load_stamp_pack(const std::string &pack_id) {
-    std::string dir = (pack_id == "official")
-        ? "/vol/content/stamps"
-        : sd_pack_dir(pack_id);
+    std::string dir = sd_pack_dir(pack_id);
     if (!dir.empty()) load_stamps_from_dir(dir);
 }
 

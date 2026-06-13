@@ -8,100 +8,69 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   convert:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Fetch stamps source repo
+      - name: Checkout stamps repo
         uses: actions/checkout@v4
         with:
           repository: Happynico7504/spotify-wiiu-miiverse-stamps
-          path: _stamps-source
+          path: stamps-repo
+          token: ${{ secrets.STAMPS_REPO_TOKEN }}
 
       - name: Install Pillow
         run: pip install Pillow --quiet
 
-      - name: Convert and rename stamps
+      - name: Convert, rename, and update packs.json
         run: |
           python3 - <<'EOF'
           from PIL import Image
-          import os
+          import os, json
 
-          src = '_stamps-source'
+          src = 'stamps-repo'
           exts = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp'}
+          skip = {'packs.json'}
           files = sorted(
               f for f in os.listdir(src)
-              if os.path.splitext(f)[1].lower() in exts
+              if os.path.splitext(f)[1].lower() in exts and f not in skip
           )
 
-          # Wipe existing stamps so deletes in the source repo are reflected
-          for f in os.listdir('stamps'):
+          # Wipe existing converted stamp*.png to reflect deletes
+          for f in os.listdir(src):
               if f.startswith('stamp') and f.endswith('.png'):
-                  os.remove(os.path.join('stamps', f))
+                  os.remove(os.path.join(src, f))
 
+          converted = []
           for i, fname in enumerate(files, 1):
+              out = f'stamp{i}.png'
               img = Image.open(os.path.join(src, fname)).convert('L')
               img = img.resize((100, 100), Image.LANCZOS)
               img = img.point(lambda p: 255 if p > 127 else 0)
-              img.convert('RGB').save(f'stamps/stamp{i}.png')
-              print(f'  {fname} -> stamp{i}.png')
+              img.convert('RGB').save(os.path.join(src, out))
+              converted.append(out)
+              print(f'  {fname} -> {out}')
 
-          print(f'Converted {len(files)} stamp(s)')
-          EOF
-
-      - name: Update packs.json stamp list
-        run: |
-          python3 - <<'EOF'
-          import json, os
-
-          stamp_files = sorted(
-              f for f in os.listdir('stamps')
-              if f.startswith('stamp') and f.endswith('.png')
-          )
-
-          repo = 'Happynico7504/spotify-wiiu-miiverse-stamps'
-          packs_path = f'_stamps-source/packs.json'
+          packs_path = os.path.join(src, 'packs.json')
           with open(packs_path) as f:
               data = json.load(f)
-
           for pack in data['packs']:
               if pack['id'] == 'official':
-                  pack['stamps'] = stamp_files
-
+                  pack['stamps'] = converted
           with open(packs_path, 'w') as f:
               json.dump(data, f, indent=2)
               f.write('\n')
 
-          print(f'Updated packs.json with {len(stamp_files)} stamps')
+          print(f'Converted {len(converted)} stamp(s)')
           EOF
 
-      - name: Push updated packs.json to stamps repo
+      - name: Commit and push to stamps repo
         run: |
-          SHA=$(gh api repos/Happynico7504/spotify-wiiu-miiverse-stamps/contents/packs.json --jq '.sha')
-          CONTENT=$(base64 -w 0 _stamps-source/packs.json)
-          gh api repos/Happynico7504/spotify-wiiu-miiverse-stamps/contents/packs.json \
-            -X PUT \
-            -f message="chore: update official pack stamp list" \
-            -f content="$CONTENT" \
-            -f sha="$SHA"
-        env:
-          GH_TOKEN: ${{ secrets.STAMPS_REPO_TOKEN }}
-
-      - name: Check for changes
-        id: diff
-        run: |
-          git diff --quiet stamps/ && echo "changed=false" >> $GITHUB_OUTPUT \
-            || echo "changed=true" >> $GITHUB_OUTPUT
-
-      - name: Commit and push
-        if: steps.diff.outputs.changed == 'true'
-        run: |
+          cd stamps-repo
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add stamps/
-          git commit -m "chore(stamps): convert from spotify-wiiu-miiverse-stamps"
+          git add -A
+          git diff --cached --quiet || git commit -m "chore: convert stamps and update packs.json"
           git push
