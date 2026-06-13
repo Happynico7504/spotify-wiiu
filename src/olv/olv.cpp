@@ -109,8 +109,8 @@ static FnUploadPost    s_fn_upload_post    = nullptr;
 // Pre-encoded stamp TGAs loaded from /vol/content/stamps/ at init time.
 // Stored in 32-byte aligned static buffers — Wii U DMA requires this alignment.
 static constexpr int   k_MaxStamps    = 8;
-static constexpr int   k_StampTgaSize = 18 + 100 * 100 * 4;           // 40018
-static constexpr int   k_StampBufSize = (k_StampTgaSize + 31) & ~31;  // round up to 32-byte multiple = 40032
+static constexpr int   k_StampTgaSize = 18 + 100 * 100 * 4 + 26;      // 40044 = STAMP_DATA_100_100_MAX_SIZE
+static constexpr int   k_StampBufSize = (k_StampTgaSize + 31) & ~31;  // round up to 32-byte multiple = 40064
 alignas(32) static uint8_t s_stamp_bufs[k_MaxStamps][k_StampBufSize];
 static int s_stamp_count = 0;
 
@@ -184,26 +184,36 @@ static std::vector<uint16_t> utf8_to_utf16(const std::string &utf8, uint32_t max
     return out;
 }
 
-// Scale src_w × src_h RGBA pixels to 100×100 and encode as a TGA (32-bit BGRA, top-left origin).
+// Scale src_w × src_h RGBA pixels to 100×100 and encode as a TGA 2.0 (32-bit BGRA, bottom-left).
+// AddStampData validates the TGA 2.0 footer ("TRUEVISION-XFILE.\0"), so the footer is required.
+// Total size: 18 (header) + 40000 (pixels) + 26 (footer) = 40044 = STAMP_DATA_100_100_MAX_SIZE.
 static std::vector<uint8_t> make_stamp_tga(const uint8_t *src, int src_w, int src_h) {
     if (!src || src_w <= 0 || src_h <= 0) return {};
-    constexpr int SW = 100, SH = 100, HDR = 18;
-    std::vector<uint8_t> tga(HDR + SW * SH * 4, 0);
-    tga[2]  = 2;
-    tga[12] = SW & 0xFF; tga[13] = 0;
-    tga[14] = SH & 0xFF; tga[15] = 0;
-    tga[16] = 32;
-    tga[17] = 0x08;  // standard bottom-left origin, 8 alpha bits
+    constexpr int SW = 100, SH = 100, HDR = 18, FOOTER = 26;
+    std::vector<uint8_t> tga(HDR + SW * SH * 4 + FOOTER, 0);
+    // Header
+    tga[2]  = 2;                        // image type: uncompressed true-color
+    tga[12] = SW & 0xFF; tga[13] = 0;  // width
+    tga[14] = SH & 0xFF; tga[15] = 0;  // height
+    tga[16] = 32;                       // bits per pixel
+    tga[17] = 0x08;                     // bottom-left origin, 8 alpha bits
+    // Pixels (RGBA → BGRA)
     uint8_t *dst = tga.data() + HDR;
     for (int y = 0; y < SH; ++y) {
         int sy = y * src_h / SH;
         for (int x = 0; x < SW; ++x) {
             int sx = x * src_w / SW;
             const uint8_t *s = src + (sy * src_w + sx) * 4;
-            dst[0] = s[2]; dst[1] = s[1]; dst[2] = s[0]; dst[3] = s[3]; // RGBA → BGRA
+            dst[0] = s[2]; dst[1] = s[1]; dst[2] = s[0]; dst[3] = s[3];
             dst += 4;
         }
     }
+    // TGA 2.0 footer (required by AddStampData format validation)
+    uint8_t *ftr = tga.data() + HDR + SW * SH * 4;
+    // bytes 0-3: extension area offset (0 = none)
+    // bytes 4-7: developer directory offset (0 = none)
+    static const char sig[] = "TRUEVISION-XFILE.";  // 17 chars + null = 18 bytes
+    memcpy(ftr + 8, sig, 18);
     return tga;
 }
 
