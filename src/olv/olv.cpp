@@ -347,6 +347,16 @@ int cached_stamp_count(const std::string &pack_id) {
     return count;
 }
 
+void delete_stamp_pack(const std::string &pack_id) {
+    std::string dir = sd_pack_dir(pack_id);
+    if (dir.empty()) return;
+    for (int i = 1; i <= k_MaxStamps; ++i) {
+        std::string path = dir + "/stamp" + std::to_string(i) + ".png";
+        if (remove(path.c_str()) != 0) break;
+    }
+    rmdir(dir.c_str());
+}
+
 int download_stamp_pack(const Pack &pack) {
     if (pack.base_url.empty()) return 0;
     std::string dir = sd_pack_dir(pack.id);
@@ -367,6 +377,7 @@ int download_stamp_pack(const Pack &pack) {
 }
 
 void load_stamp_pack(const std::string &pack_id) {
+    if (pack_id == "none") { s_stamp_count = 0; return; }
     std::string dir = sd_pack_dir(pack_id);
     if (!dir.empty()) load_stamps_from_dir(dir);
 }

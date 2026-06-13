@@ -41,7 +41,10 @@ std::vector<Pack> fetch_stamp_packs();
 int cached_stamp_count(const std::string &pack_id);
 
 // Download pack to SD card (blocking). Returns number of stamps downloaded.
-int download_stamp_pack(const Pack &pack);
+int  download_stamp_pack(const Pack &pack);
+
+// Delete cached stamps for pack_id from SD card.
+void delete_stamp_pack(const std::string &pack_id);
 
 // Load stamps for pack_id into the stamp buffers (replaces current set).
 void load_stamp_pack(const std::string &pack_id);

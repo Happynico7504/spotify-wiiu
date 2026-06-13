@@ -910,6 +910,11 @@ bool Player::show_stamp_pack_picker() {
     auto packs = OLV::fetch_stamp_packs();
     if (packs.empty()) return true;  // no registry, proceed with loaded stamps
 
+    OLV::Pack none_pack;
+    none_pack.id = "none"; none_pack.name = "No Stamps";
+    none_pack.description = "Post without stamps";
+    packs.insert(packs.begin(), none_pack);
+
     std::string current = OLV::load_selected_pack();
     int sel = 0;
     for (int i = 0; i < (int)packs.size(); ++i)
@@ -954,20 +959,38 @@ bool Player::show_stamp_pack_picker() {
             if (!packs[i].description.empty())
                 draw_text(font_sm, packs[i].description.c_str(), gray, 100, y + 32);
 
-            int n = OLV::cached_stamp_count(packs[i].id);
-            char hint[48];
-            if (n > 0) snprintf(hint, sizeof(hint), "%d stamp%s cached", n, n == 1 ? "" : "s");
-            else       snprintf(hint, sizeof(hint), "not cached");
-            draw_text(font_sm, hint, gray, 900, y + 20);
+            if (packs[i].id != "none") {
+                int n = OLV::cached_stamp_count(packs[i].id);
+                char hint[48];
+                if (n > 0) snprintf(hint, sizeof(hint), "%d stamp%s cached", n, n == 1 ? "" : "s");
+                else       snprintf(hint, sizeof(hint), "not cached");
+                draw_text(font_sm, hint, gray, 900, y + 20);
+            }
         }
 
         if (status && *status)
             draw_text(font_md, status, green, 100, 150 + (int)packs.size() * 80 + 20);
 
-        draw_text(font_sm, "Up/Down: Navigate     A: Select     B: Cancel",
+        draw_text(font_sm, "Up/Down: Navigate     A: Select     Y: Update     X: Delete     B: Cancel",
                   gray, 100, 660);
 
         SDL_RenderPresent(ren);
+    };
+
+    // Download selected pack, retrying on failure. Returns false if user cancels.
+    auto do_download = [&](const OLV::Pack &pack) -> bool {
+        while (WHBProcIsRunning()) {
+            render_frame("Downloading stamps...");
+            if (OLV::download_stamp_pack(pack) > 0) return true;
+            render_frame("Download failed — press A to retry or B to cancel.");
+            while (WHBProcIsRunning()) {
+                VPADRead(VPAD_CHAN_0, &vpad, 1, &verr);
+                if (vpad.trigger & VPAD_BUTTON_B) return false;
+                if (vpad.trigger & VPAD_BUTTON_A) break;
+                OSSleepTicks(OSMillisecondsToTicks(16));
+            }
+        }
+        return false;
     };
 
     VPADStatus    vpad{};
@@ -985,19 +1008,29 @@ bool Player::show_stamp_pack_picker() {
 
         if (vpad.trigger & VPAD_BUTTON_A) {
             const auto &pack = packs[sel];
-            if (OLV::cached_stamp_count(pack.id) == 0) {
-                render_frame("Downloading stamps...");
-                if (OLV::download_stamp_pack(pack) == 0) {
-                    render_frame("Download failed — press A to retry or B to cancel.");
-                    while (WHBProcIsRunning()) {
-                        VPADRead(VPAD_CHAN_0, &vpad, 1, &verr);
-                        if (vpad.trigger & VPAD_BUTTON_B) return false;
-                        if (vpad.trigger & VPAD_BUTTON_A) break;
-                        OSSleepTicks(OSMillisecondsToTicks(16));
-                    }
-                    continue;
+            if (pack.id != "none" && OLV::cached_stamp_count(pack.id) == 0 && !do_download(pack))
+                return false;
+            OLV::load_stamp_pack(pack.id);
+            OLV::save_selected_pack(pack.id);
+            return true;
+        }
+
+        if (vpad.trigger & VPAD_BUTTON_X && packs[sel].id != "none") {
+            const auto &pack = packs[sel];
+            if (OLV::cached_stamp_count(pack.id) > 0) {
+                OLV::delete_stamp_pack(pack.id);
+                if (OLV::load_selected_pack() == pack.id) {
+                    OLV::save_selected_pack("none");
+                    OLV::load_stamp_pack("none");
                 }
+                render_frame("Cache deleted.");
+                OSSleepTicks(OSMillisecondsToTicks(1200));
             }
+        }
+
+        if (vpad.trigger & VPAD_BUTTON_Y && packs[sel].id != "none") {
+            const auto &pack = packs[sel];
+            if (!do_download(pack)) return false;
             OLV::load_stamp_pack(pack.id);
             OLV::save_selected_pack(pack.id);
             return true;
