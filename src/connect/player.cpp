@@ -265,10 +265,12 @@ void Player::on_credentials(Discovery::Credentials creds) {
     state_.store(State::Connecting);
 
     // Clean up any previous connection (join defunct recv thread, close fd).
+    // Keep reconnecting_=true until the new Spirc is fully started — the old AP's
+    // on_disconnect may fire asynchronously (recv thread drain) after disconnect()
+    // returns, and we must not flash "waiting" over an already-live new session.
     if (spirc_) { spirc_->stop(); spirc_.reset(); }
     reconnecting_.store(true);
     if (ap_) ap_->disconnect();
-    reconnecting_.store(false);
     ap_ = std::make_unique<AP>();
 
     AP::Callbacks acb;
@@ -283,16 +285,13 @@ void Player::on_credentials(Discovery::Credentials creds) {
         state_.store(State::WaitingForUser);
         audio_->stop();
         spirc_playing_ = false;
-        // Don't reset the display if on_credentials triggered this disconnect
-        // on its way to setting up a new session — the now-playing screen may
-        // already be showing from a cluster update the old Spirc processed just
-        // before we replaced it, and flashing "waiting" here is the visible glitch.
         if (!reconnecting_.load())
             display_.set_waiting();
     };
 
     if (!ap_->connect(creds, std::move(acb))) {
         WHBLogPrint("player: AP connect failed");
+        reconnecting_.store(false);
         state_.store(State::WaitingForUser);
         display_.set_waiting();
         return;
@@ -351,6 +350,7 @@ void Player::on_credentials(Discovery::Credentials creds) {
     };
 
     spirc_->start(std::move(scb));
+    reconnecting_.store(false);
     state_.store(State::Ready);
     const std::string &canon = ap_->canonical_username();
     zeroconf_.set_active_user(canon);
