@@ -74,6 +74,7 @@ private:
 
     enum class State { WaitingForUser, Connecting, Ready, Playing };
     std::atomic<State>    state_{State::WaitingForUser};
+    std::atomic<uint32_t> ap_gen_{0};  // incremented each time a new AP is created
 
     Discovery::Zeroconf              zeroconf_;
     std::unique_ptr<AP>              ap_;

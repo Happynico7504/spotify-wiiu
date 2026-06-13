@@ -265,33 +265,33 @@ void Player::on_credentials(Discovery::Credentials creds) {
     state_.store(State::Connecting);
 
     // Clean up any previous connection (join defunct recv thread, close fd).
-    // Keep reconnecting_=true until the new Spirc is fully started — the old AP's
-    // on_disconnect may fire asynchronously (recv thread drain) after disconnect()
-    // returns, and we must not flash "waiting" over an already-live new session.
     if (spirc_) { spirc_->stop(); spirc_.reset(); }
     reconnecting_.store(true);
     if (ap_) ap_->disconnect();
+    reconnecting_.store(false);
     ap_ = std::make_unique<AP>();
+
+    // Stamp this AP session with a generation number.  The on_disconnect closure
+    // captures it and returns immediately if it no longer matches — this safely
+    // discards late-firing callbacks from the old AP's recv thread without
+    // interfering with an already-live new session's audio or display state.
+    uint32_t gen = ++ap_gen_;
 
     AP::Callbacks acb;
     acb.on_packet     = [this](uint8_t cmd, std::vector<uint8_t> pl) {
         on_ap_packet(cmd, std::move(pl));
     };
-    acb.on_disconnect = [this] {
-        // Do NOT touch spirc_ here — on_credentials may have already reset it
-        // before calling ap_->disconnect(), or may be in the middle of creating
-        // a new one.  Spirc cleanup is always handled by on_credentials under connect_mu_.
+    acb.on_disconnect = [this, gen] {
+        if (ap_gen_.load() != gen) return;  // stale callback from a replaced AP
         WHBLogPrint("player: AP disconnected");
         state_.store(State::WaitingForUser);
         audio_->stop();
         spirc_playing_ = false;
-        if (!reconnecting_.load())
-            display_.set_waiting();
+        display_.set_waiting();
     };
 
     if (!ap_->connect(creds, std::move(acb))) {
         WHBLogPrint("player: AP connect failed");
-        reconnecting_.store(false);
         state_.store(State::WaitingForUser);
         display_.set_waiting();
         return;
@@ -350,7 +350,6 @@ void Player::on_credentials(Discovery::Credentials creds) {
     };
 
     spirc_->start(std::move(scb));
-    reconnecting_.store(false);
     state_.store(State::Ready);
     const std::string &canon = ap_->canonical_username();
     zeroconf_.set_active_user(canon);
