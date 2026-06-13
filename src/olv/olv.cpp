@@ -109,7 +109,7 @@ static FnUploadPost    s_fn_upload_post    = nullptr;
 
 // Pre-encoded stamp TGAs loaded from /vol/content/stamps/ at init time.
 // Stored in 32-byte aligned static buffers — Wii U DMA requires this alignment.
-static constexpr int   k_MaxStamps    = 8;
+static constexpr int   k_MaxStamps    = 100; // SDK STAMP_DATA_MAX_NUM
 static constexpr int   k_StampTgaSize = 18 + 100 * 100 * 4 + 26;      // 40044 = STAMP_DATA_100_100_MAX_SIZE
 static constexpr int   k_StampBufSize = (k_StampTgaSize + 31) & ~31;  // round up to 32-byte multiple = 40064
 alignas(32) static uint8_t s_stamp_bufs[k_MaxStamps][k_StampBufSize];
@@ -387,14 +387,14 @@ bool init() {
             WHBLogPrintf("olv: Initialize → 0x%08X", (uint32_t)r);
             // 0x01100080 is Roséverse's success code.
             if (r == 0 || (uint32_t)r == 0x01100080u) {
-                // Load pre-made stamps from /vol/content/stamps/stamp1.png … stamp8.png
-                // before marking OLV available so the post applet always sees a full set.
+                // Load stamps from /vol/content/stamps/stamp1.png upward;
+                // stop at the first missing file (sequential naming assumed).
                 s_stamp_count = 0;
                 for (int i = 1; i <= k_MaxStamps; ++i) {
                     char path[64];
                     snprintf(path, sizeof(path), "/vol/content/stamps/stamp%d.png", i);
                     FILE *fp = fopen(path, "rb");
-                    if (!fp) { WHBLogPrintf("olv: stamp %d missing", i); continue; }
+                    if (!fp) break;
                     fseek(fp, 0, SEEK_END); long sz = ftell(fp); rewind(fp);
                     std::vector<uint8_t> raw(sz);
                     fread(raw.data(), 1, sz, fp); fclose(fp);
@@ -403,11 +403,10 @@ bool init() {
                     if (!rgba) { WHBLogPrintf("olv: stamp %d decode failed", i); continue; }
                     auto tga = make_stamp_tga(rgba, w, h);
                     stbi_image_free(rgba);
-                    if (!tga.empty() && s_stamp_count < k_MaxStamps) {
+                    if (!tga.empty()) {
                         memcpy(s_stamp_bufs[s_stamp_count], tga.data(), tga.size());
-                        WHBLogPrintf("olv: loaded stamp %d (%dx%d) → buf[%d] @%p",
-                                     i, w, h, s_stamp_count,
-                                     (void *)s_stamp_bufs[s_stamp_count]);
+                        WHBLogPrintf("olv: loaded stamp %d (%dx%d) → buf[%d]",
+                                     i, w, h, s_stamp_count);
                         ++s_stamp_count;
                     }
                 }

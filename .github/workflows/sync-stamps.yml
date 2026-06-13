@@ -1,0 +1,38 @@
+name: Sync Stamps
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for stamp changes
+        id: diff
+        run: |
+          if diff -rq --include='*.png' stamps/ content/stamps/ > /dev/null 2>&1; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Sync stamps to content/stamps
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          cp stamps/*.png content/stamps/
+
+      - name: Commit and push
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add content/stamps/
+          git commit -m "chore(stamps): sync content/stamps from stamps/"
+          git push
