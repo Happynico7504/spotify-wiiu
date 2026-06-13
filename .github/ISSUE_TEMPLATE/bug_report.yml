@@ -8,7 +8,7 @@ body:
       value: |
         Thanks for taking the time to report this! The more detail you provide, the faster it can be fixed.
 
-        **Before you start:** make sure you are running the latest release from the
+        **Before you start:** make sure you are running the latest wuhb/plugin release from the
         [releases page](../../../../releases).
 
   - type: textarea
