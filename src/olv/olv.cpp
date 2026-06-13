@@ -105,6 +105,7 @@ static FnSetSearchKey  s_fn_set_search     = nullptr;
 static FnSetCommunityId s_fn_set_community = nullptr;
 static FnSetAppData    s_fn_set_appdata    = nullptr;
 static FnAddStampData  s_fn_add_stamp      = nullptr;
+static FnAddStampData  s_fn_add_stamp_base = nullptr;  // base-class version
 static FnUploadPost    s_fn_upload_post    = nullptr;
 
 // Pre-encoded stamp TGAs loaded from /vol/content/stamps/ at init time.
@@ -194,12 +195,10 @@ static std::vector<uint8_t> make_stamp_tga(const uint8_t *src, int src_w, int sr
     std::vector<uint8_t> tga(HDR + SW * SH * 4 + FOOTER, 0);
     // Header
     tga[2]  = 2;                        // image type: uncompressed true-color
-    // Wii U is big-endian PPC; nn_olv reads these as native u16 without
-    // byte-swapping, so store width/height in big-endian (not TGA-standard LE).
-    tga[12] = 0; tga[13] = SW & 0xFF;  // width  (BE: 0x0064 = 100)
-    tga[14] = 0; tga[15] = SH & 0xFF;  // height (BE: 0x0064 = 100)
+    tga[12] = SW & 0xFF; tga[13] = 0;  // width  (LE per TGA spec: 0x64 0x00)
+    tga[14] = SH & 0xFF; tga[15] = 0;  // height (LE per TGA spec: 0x64 0x00)
     tga[16] = 32;                       // bits per pixel
-    tga[17] = 0x08;                     // bottom-left origin, 8 alpha bits
+    tga[17] = 0x08;                     // descriptor: bottom-left, 8 alpha bits
     // Pixels (RGBA → BGRA, converted to grayscale per Roséverse dev requirement)
     uint8_t *dst = tga.data() + HDR;
     for (int y = 0; y < SH; ++y) {
@@ -207,10 +206,14 @@ static std::vector<uint8_t> make_stamp_tga(const uint8_t *src, int src_w, int sr
         for (int x = 0; x < SW; ++x) {
             int sx = x * src_w / SW;
             const uint8_t *s = src + (sy * src_w + sx) * 4;
-            // Threshold to black/transparent: dark pixels → opaque black,
-            // light pixels → fully transparent (PNG has no alpha; white = background).
+            // Threshold to black/transparent. nn_olv only accepts three pixel values:
+            //   black (0,0,0,255), white (255,255,255,255), transparent (255,255,255,0).
+            // Light pixels → transparent (255,255,255,0); dark → opaque black (0,0,0,255).
             bool isLight = ((s[0] * 77 + s[1] * 150 + s[2] * 29) >> 8) > 127;
-            dst[0] = 0; dst[1] = 0; dst[2] = 0; dst[3] = isLight ? 0 : 255;
+            dst[0] = isLight ? 255 : 0;
+            dst[1] = isLight ? 255 : 0;
+            dst[2] = isLight ? 255 : 0;
+            dst[3] = isLight ? 0   : 255;
             dst += 4;
         }
     }
@@ -340,9 +343,12 @@ bool init() {
         "AddStampData__Q3_2nn3olv28UploadPostDataByPostAppParamFPCUcUi",
         reinterpret_cast<void **>(&s_fn_add_stamp));
     OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
+        "AddStampData__Q3_2nn3olv15UploadParamBaseFPCUcUi",
+        reinterpret_cast<void **>(&s_fn_add_stamp_base));
+    OSDynLoad_FindExport(s_handle, OS_DYNLOAD_EXPORT_FUNC,
         "UploadPostDataByPostApp__Q2_2nn3olvFPCQ3_2nn3olv28UploadPostDataByPostAppParam",
         reinterpret_cast<void **>(&s_fn_upload_post));
-    WHBLogPrintf("olv: post applet ctor=%s work=%s body=%s flags=%s topic=%s search=%s community=%s appdata=%s stamp=%s upload=%s",
+    WHBLogPrintf("olv: post applet ctor=%s work=%s body=%s flags=%s topic=%s search=%s community=%s appdata=%s stamp=%s stamp_base=%s upload=%s",
                  s_fn_ctor_upload    ? "ok" : "missing",
                  s_fn_set_work       ? "ok" : "missing",
                  s_fn_set_body       ? "ok" : "missing",
@@ -352,6 +358,7 @@ bool init() {
                  s_fn_set_community  ? "ok" : "missing",
                  s_fn_set_appdata    ? "ok" : "missing",
                  s_fn_add_stamp      ? "ok" : "missing",
+                 s_fn_add_stamp_base ? "ok" : "missing",
                  s_fn_upload_post    ? "ok" : "missing");
 
     // Initialize the network/SSL/account stack before calling nn_olv::Initialize.
@@ -526,7 +533,7 @@ void open_post_applet(const std::string &body_utf8, bool is_explicit,
     //   Total ≈ 5660 bytes — use 0x2000 (8192) so the constructor never
     //   writes past our buffer into adjacent BSS.
     static constexpr uint32_t k_UploadParamSize = 0x2000;
-    alignas(32) static uint8_t s_upload_work[0x80000];  // 512 KB work buffer
+    alignas(32) static uint8_t s_upload_work[0x100000];  // 1 MB — POST_APP_PARAM_WORK_BUFF_SIZE
     alignas(32) static uint8_t s_upload_param[k_UploadParamSize];
 
     memset(s_upload_param, 0, sizeof(s_upload_param));
@@ -545,13 +552,6 @@ void open_post_applet(const std::string &body_utf8, bool is_explicit,
             p[24],p[25],p[26],p[27], p[28],p[29],p[30],p[31]);
     }
     s_fn_set_work(s_upload_param, s_upload_work, sizeof(s_upload_work));
-    // Test stamp 0 RIGHT AFTER SetWork, before any other setter.
-    // If this works but the later loop fails, a setter is corrupting the struct.
-    if (s_fn_add_stamp && s_stamp_count > 0) {
-        DCFlushRange(s_stamp_bufs[0], k_StampTgaSize);
-        int32_t sr0 = s_fn_add_stamp(s_upload_param, s_stamp_bufs[0], k_StampTgaSize);
-        WHBLogPrintf("olv: AddStampData[early] → 0x%08X", (uint32_t)sr0);
-    }
     if (s_fn_set_community)
         s_fn_set_community(s_upload_param, COMMUNITY_ID);
 
@@ -604,12 +604,24 @@ void open_post_applet(const std::string &body_utf8, bool is_explicit,
             p[0],p[1],p[2],p[3],p[4],p[5],p[6],p[7]);
 
         int added = 0;
-        for (int i = 0; i < s_stamp_count; ++i) {
-            // Flush CPU cache so nn_olv can read stamp data from physical RAM.
+        // Try derived-class AddStampData; fall back to base-class version.
+        FnAddStampData fn = s_fn_add_stamp ? s_fn_add_stamp : s_fn_add_stamp_base;
+        WHBLogPrintf("olv: using %s AddStampData",
+                     s_fn_add_stamp ? "derived" : (s_fn_add_stamp_base ? "base" : "NONE"));
+        for (int i = 0; i < s_stamp_count && fn; ++i) {
             DCFlushRange(s_stamp_bufs[i], k_StampTgaSize);
-            int32_t sr = s_fn_add_stamp(s_upload_param, s_stamp_bufs[i], k_StampTgaSize);
+            int32_t sr = fn(s_upload_param, s_stamp_bufs[i], k_StampTgaSize);
             if (sr == 0 || (uint32_t)sr == 0x01100080u) ++added;
             else WHBLogPrintf("olv: AddStampData[%d] → 0x%08X", i, (uint32_t)sr);
+        }
+        // If derived failed for all, retry with base class
+        if (added == 0 && s_fn_add_stamp && s_fn_add_stamp_base) {
+            WHBLogPrintf("olv: retrying with base AddStampData");
+            for (int i = 0; i < s_stamp_count; ++i) {
+                int32_t sr = s_fn_add_stamp_base(s_upload_param, s_stamp_bufs[i], k_StampTgaSize);
+                if (sr == 0 || (uint32_t)sr == 0x01100080u) ++added;
+                else WHBLogPrintf("olv: BaseStampData[%d] → 0x%08X", i, (uint32_t)sr);
+            }
         }
         WHBLogPrintf("olv: %d/%d stamps added to param", added, s_stamp_count);
     }
