@@ -896,12 +896,14 @@ void Spirc::handle_dealer_message(const std::string &uri,
         WHBLogPrintf("spirc: became inactive (active='%.40s')",
                      cs.active_device_id.c_str());
 
-        // active='' with playing=1 is a transient cluster echo that arrives after
-        // notify_track_end while a new load command is already in-flight.  Treating
-        // it as became_inactive would abort the new decode thread and prevent audio
-        // from ever starting.  Skip it — the real active assignment arrives next.
-        if (cs.active_device_id.empty() && cs.is_playing) {
-            WHBLogPrint("spirc: cluster active='' playing=1 — transient, ignoring");
+        // active='' with playing=1 AND started_playing_at_ms_==0 is a stale cluster
+        // echo from our own notify_track_end (put_cs playing=false) arriving before
+        // the auto-advance load command.  Treating it as became_inactive would abort
+        // the new decode thread; skip it.
+        // When started_playing_at_ms_>0 the device is mid-track and active='' means
+        // a real device switch — fall through and stop.
+        if (cs.active_device_id.empty() && cs.is_playing && started_playing_at_ms_ == 0) {
+            WHBLogPrint("spirc: cluster active='' playing=1 post-track-end echo — ignoring");
             return;
         }
 
