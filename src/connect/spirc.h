@@ -113,6 +113,10 @@ public:
     // Notifies Spotify we're inactive via HTTP so the phone stops re-activating us.
     void become_inactive();
 
+    // True if we observed another device taking over (active!=ours cluster) since
+    // the last reconnect.  Player checks this to decide inactive vs auto-reconnect.
+    bool saw_device_switch() const { return saw_device_switch_.load(); }
+
     // Re-play the current track from the beginning without advancing the index.
     // Used by Player when repeat is on and a track finishes.
     void replay_current();
@@ -234,6 +238,9 @@ private:
     // Cleared by become_inactive(); set when we see active!=ours (Spotify ack'd our
     // BECAME_INACTIVE). The next active=ours after this flag is a genuine re-activation.
     std::atomic<bool> saw_inactive_cluster_{false};
+    // Set when cluster shows a *real* device switch (active=<other_id>).
+    // Cleared on reconnect. Player reads this to decide inactive vs auto-reconnect.
+    std::atomic<bool> saw_device_switch_{false};
 
     // Dealer WebSocket — provides the connection_id for connect-state
     Dealer            dealer_;

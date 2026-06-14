@@ -743,6 +743,7 @@ void Spirc::become_inactive() {
     WHBLogPrint("spirc: become_inactive — AP dropped externally");
     inactive_.store(true);
     saw_inactive_cluster_.store(false);
+    saw_device_switch_.store(false);
     playing_ = false;
     current_track_uri_.clear();
     started_playing_at_ms_ = 0;
@@ -955,6 +956,10 @@ void Spirc::handle_dealer_message(const std::string &uri,
             WHBLogPrint("spirc: cluster active='' playing=1 — stale echo, ignoring");
             return;
         }
+
+        // Real device switch (non-empty active id): record so player can go inactive
+        // rather than auto-reconnect when the AP subsequently drops.
+        if (!cs.active_device_id.empty()) saw_device_switch_.store(true);
 
         if (playing_ || !current_track_uri_.empty()) {
             playing_ = false;

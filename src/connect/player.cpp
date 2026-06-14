@@ -275,6 +275,7 @@ void Player::on_credentials(Discovery::Credentials creds) {
         return;
     }
     WHBLogPrintf("player: credentials for '%s'", creds.username.c_str());
+    cached_creds_ = creds;
     state_.store(State::Connecting);
 
     // Clean up any previous connection (join defunct recv thread, close fd).
@@ -297,15 +298,29 @@ void Player::on_credentials(Discovery::Credentials creds) {
     acb.on_disconnect = [this, gen] {
         if (ap_gen_.load() != gen) return;  // stale callback from a replaced AP
         WHBLogPrint("player: AP disconnected");
-        state_.store(State::WaitingForUser);
         audio_->stop();
         spirc_playing_ = false;
-        display_.set_waiting();
-        // If Spotify closed our AP (device switch, not our own reconnect), tell
-        // Spotify we're inactive via HTTP so the phone stops sending play commands
-        // to our dead AP and driving an activation loop.
-        if (!reconnecting_.load() && spirc_)
-            spirc_->become_inactive();
+        if (!reconnecting_.load() && spirc_) {
+            if (spirc_->saw_device_switch()) {
+                // Another device took over before the AP dropped — go inactive so
+                // the phone stops routing play commands to our dead session.
+                WHBLogPrint("player: device switch detected — going inactive");
+                state_.store(State::WaitingForUser);
+                display_.set_waiting();
+                spirc_->become_inactive();
+            } else {
+                // Plain network blip or server rotation — reconnect automatically.
+                WHBLogPrint("player: AP dropped (no device switch) — reconnecting");
+                display_.set_connecting();
+                if (connect_thread_.joinable()) connect_thread_.detach();
+                auto creds = cached_creds_;
+                connect_thread_ = std::thread([this, creds = std::move(creds)]() mutable {
+                    OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU0);
+                    OSSleepTicks(OSMillisecondsToTicks(2000));
+                    on_credentials(std::move(creds));
+                });
+            }
+        }
     };
 
     if (!ap_->connect(creds, std::move(acb))) {
@@ -373,6 +388,8 @@ void Player::on_credentials(Discovery::Credentials creds) {
         display_.set_ready();
     };
 
+    audio_->stop();
+    spirc_playing_ = false;
     spirc_->start(std::move(scb));
     display_.set_connecting();   // show "Connecting…" until on_ready fires
     state_.store(State::Ready);
