@@ -424,7 +424,9 @@ void Zeroconf::http_thread_fn() {
         if (poll(&pfd, 1, 200) <= 0) continue;
         int fd = accept(srv, nullptr, nullptr);
         if (fd >= 0) {
-            fcntl(fd, F_SETFL, 0); // clear O_NONBLOCK inherited from listening socket
+            // Wii U: use SO_BIO to ensure blocking mode on the accepted socket.
+            int bio = 1;
+            setsockopt(fd, SOL_SOCKET, SO_BIO, &bio, sizeof(bio));
             handle_client(fd);
             close(fd);
         }
@@ -538,7 +540,12 @@ void Zeroconf::handle_client(int fd) {
                         creds.auth_data = std::move(blob);
                         WHBLogPrintf("zc: using saved creds auth_type=%u len=%zu",
                                      (unsigned)creds.auth_type, creds.auth_data.size());
-                        if (on_creds_) on_creds_(std::move(creds));
+                        if (on_creds_) {
+                            auto cb = on_creds_;
+                            std::thread([cb, c = std::move(creds)]() mutable {
+                                cb(std::move(c));
+                            }).detach();
+                        }
                         return;
                     }
                 }
@@ -556,7 +563,14 @@ void Zeroconf::handle_client(int fd) {
             http_respond(fd, 200, "application/json",
                          "{\"status\":101,\"statusString\":\"OK\","
                          "\"spotifyError\":0}");
-            if (on_creds_) on_creds_(std::move(creds));
+            // Dispatch on_creds_ asynchronously so the HTTP thread stays
+            // responsive to getInfo polls while the AP handshake runs.
+            if (on_creds_) {
+                auto cb = on_creds_;
+                std::thread([cb, c = std::move(creds)]() mutable {
+                    cb(std::move(c));
+                }).detach();
+            }
         } else {
             http_respond(fd, 200, "application/json",
                          "{\"status\":403,\"statusString\":\"ERROR-INVALID-CREDENTIALS\","
@@ -714,6 +728,8 @@ std::string Zeroconf::http_read(int fd) {
     req.reserve(2048);
     char buf[512];
     while (req.size() < 8192) {
+        struct pollfd pfd = {fd, POLLIN, 0};
+        if (poll(&pfd, 1, 5000) <= 0) break; // timeout or error
         ssize_t n = recv(fd, buf, sizeof(buf), 0);
         if (n <= 0) break;
         req.append(buf, n);
@@ -732,6 +748,8 @@ std::string Zeroconf::http_read(int fd) {
         if (body_have >= cl_val) break;
         // Read remaining body bytes
         while (body_have < cl_val) {
+            pfd = {fd, POLLIN, 0};
+            if (poll(&pfd, 1, 5000) <= 0) break; // timeout or error
             n = recv(fd, buf, (int)std::min(sizeof(buf), cl_val - body_have), 0);
             if (n <= 0) break;
             req.append(buf, n);
