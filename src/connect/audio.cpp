@@ -111,9 +111,11 @@ static bool fetch_range(const std::string &url, size_t start, size_t end_inc,
     curl_easy_setopt(curl, CURLOPT_WRITEDATA,        &out);
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION,   curl_header_size);
     curl_easy_setopt(curl, CURLOPT_HEADERDATA,       &file_size);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT,          10L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT,          30L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER,   0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST,   0L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION,   1L);
+    curl_easy_setopt(curl, CURLOPT_MAXREDIRS,        5L);
     if (stop) {
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, fetch_abort_check);
         curl_easy_setopt(curl, CURLOPT_XFERINFODATA,     stop);
@@ -121,7 +123,13 @@ static bool fetch_range(const std::string &url, size_t start, size_t end_inc,
     }
 
     CURLcode rc = curl_easy_perform(curl);
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
     curl_easy_cleanup(curl);
+    if (rc != CURLE_OK || out.empty()) {
+        WHBLogPrintf("audio: fetch_range curl=%d http=%ld sz=%zu url=%.50s",
+                     (int)rc, http_code, out.size(), url.c_str());
+    }
     return rc == CURLE_OK && !out.empty();
 }
 
@@ -362,7 +370,7 @@ void AudioPipeline::decode_thread_fn() {
         std::vector<uint8_t> tmp;
         if (!fetch_range(ctx.cdn_url, 0, CHUNK_SIZE - 1, tmp, sz, &stop_flag_) || sz == 0) {
             WHBLogPrint("audio: initial fetch failed");
-            if (!stop_flag_.load() && on_track_end) on_track_end();
+            if (!stop_flag_.load() && on_fetch_error) on_fetch_error();
             return;
         }
         ctx.file_size = sz;

@@ -74,6 +74,10 @@ public:
 
     // Called when the track finishes naturally (not on stop/seek)
     std::function<void()> on_track_end;
+    // Called when the initial CDN fetch fails and the failure was not externally
+    // aborted by stop() — caller should reset to WaitingForUser without notifying
+    // Spotify that the track ended (which would cause an auto-resend loop).
+    std::function<void()> on_fetch_error;
 
 private:
     // ── decode thread ────────────────────────────────────────────────────────

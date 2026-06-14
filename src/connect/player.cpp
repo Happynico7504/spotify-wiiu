@@ -112,6 +112,16 @@ void Player::run() {
         state_.store(State::Ready);
     };
 
+    // CDN fetch failed (not aborted by stop()) — reset to waiting without
+    // telling Spotify the track ended, which would cause it to auto-resend
+    // the same track and loop indefinitely.
+    audio_->on_fetch_error = [this] {
+        WHBLogPrint("player: CDN fetch error — resetting to waiting");
+        spirc_playing_ = false;
+        state_.store(State::WaitingForUser);
+        display_.set_waiting();
+    };
+
     zeroconf_.start([this](Discovery::Credentials creds) {
         // Must not block the Zeroconf HTTP thread, so we spawn a separate thread.
         // Release the previous handle (detach if still running — ap_->disconnect()
