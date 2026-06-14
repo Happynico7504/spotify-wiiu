@@ -9,7 +9,7 @@ body:
         Thanks for taking the time to report this! The more detail you provide, the faster it can be fixed.
 
         **Before you start:** make sure you are running the latest wuhb/plugin release from the
-        [releases page](../../../../releases).
+        [releases page](https://github.com/Happynico7504/spotify-wiiu/releases).
 
   - type: textarea
     id: description
@@ -66,7 +66,7 @@ body:
     id: version
     attributes:
       label: Spotify Wii U version
-      description: Found on the [releases page](../releases).
+      description: Found on the [releases page](https://github.com/Happynico7504/spotify-wiiu/releases).
       placeholder: e.g. v1.4.1
     validations:
       required: true
