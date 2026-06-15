@@ -14,7 +14,7 @@ static constexpr char DEVICE_AUTH_URL[] =
 static constexpr char TOKEN_URL[] =
     "https://accounts.spotify.com/api/token";
 static constexpr char CLIENT_ID[] =
-    "ea61371db93549e48ea03b7b0fea6268";
+    "65b708073fc0480ea92a077233ca87bd";
 
 // ── curl helpers ──────────────────────────────────────────────────────────────
 
