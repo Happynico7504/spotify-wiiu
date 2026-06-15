@@ -128,6 +128,9 @@ private:
     // True once on_ready fires at least once — distinguishes initial auth failure
     // (bad saved creds) from a live session dropping.
     std::atomic<bool>        ever_established_{false};
+    // Set when reconnecting mid-playback so Spirc allows the cluster-driven play
+    // command that arrives after the new session is established.
+    std::atomic<bool>        resuming_playback_{false};
 };
 
 } // namespace Connect
