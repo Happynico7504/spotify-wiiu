@@ -45,6 +45,40 @@ static std::string make_device_id() {
 }
 
 
+// ── Saved credentials ─────────────────────────────────────────────────────────
+
+// Reads spotify_saved_creds.bin from the SD card root.
+// Format: [1 byte auth_type][raw auth blob].
+static bool try_load_saved_creds(const std::string &device_id,
+                                  Discovery::Credentials &out) {
+    const char *sd = WHBGetSdCardMountPath();
+    if (!sd) return false;
+
+    char path[256];
+    snprintf(path, sizeof(path), "%s/spotify_saved_creds.bin", sd);
+
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    rewind(f);
+
+    if (size < 2) { fclose(f); return false; }
+
+    std::vector<uint8_t> data((size_t)size);
+    if ((long)fread(data.data(), 1, (size_t)size, f) != size) { fclose(f); return false; }
+    fclose(f);
+
+    out.username  = "";
+    out.device_id = device_id;
+    out.auth_type = data[0];
+    out.auth_data.assign(data.begin() + 1, data.end());
+    WHBLogPrintf("player: loaded saved creds (auth_type=%u, blob=%ld bytes)",
+                 out.auth_type, size - 1);
+    return true;
+}
+
 // ── Constructor / destructor ──────────────────────────────────────────────────
 
 Player::Player()
@@ -138,39 +172,23 @@ void Player::run() {
         display_.set_error(std::move(msg));
     });
 
-    // QR auth runs in parallel with Zeroconf — whichever delivers credentials first wins.
-    qrauth_thread_ = std::thread([this]() {
-        OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU0);
-        bool qr_shown = false;
-        Connect::device_auth(
-            [this, &qr_shown](std::string code, std::vector<uint8_t> qr_png) {
-                qr_shown = true;
-                display_.set_login(code, qr_png);
-            },
-            [this](std::string token) {
-                Discovery::Credentials creds;
-                creds.username  = "";
-                creds.device_id = zeroconf_.device_id();
-                creds.auth_type = 0x03;  // AUTHENTICATION_SPOTIFY_TOKEN
-                creds.auth_data.assign(token.begin(), token.end());
-                if (connect_thread_.joinable()) connect_thread_.detach();
-                connect_thread_ = std::thread([this, creds = std::move(creds)]() mutable {
-                    OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU0);
-                    on_credentials(std::move(creds));
-                });
-            },
-            [this, &qr_shown](std::string msg) {
-                // Only surface errors that happen after the QR was shown —
-                // a step-1 failure (client not authorised for device flow, network
-                // error, etc.) should fall through silently so Zeroconf still works.
-                if (qr_shown && state_.load() == State::WaitingForUser)
-                    display_.set_error(msg);
-                else
-                    WHBLogPrintf("qrauth: silent error: %s", msg.c_str());
-            },
-            [] { return WHBProcIsRunning(); }
-        );
-    });
+    // Prefer saved credentials from the setup tool; fall back to QR + Zeroconf.
+    {
+        Discovery::Credentials saved;
+        if (try_load_saved_creds(zeroconf_.device_id(), saved)) {
+            WHBLogPrint("player: trying saved credentials");
+            display_.set_connecting();
+            connect_thread_ = std::thread([this, saved = std::move(saved)]() mutable {
+                OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU0);
+                on_credentials(std::move(saved));
+            });
+            // QR auth starts in on_disconnect if saved creds fail (ever_established_
+            // remains false until on_ready fires).
+        } else {
+            WHBLogPrint("player: no saved creds — starting QR auth");
+            start_qrauth_thread();
+        }
+    }
 
     WHBLogPrint("player: waiting for Spotify app...");
 
@@ -337,7 +355,14 @@ void Player::on_credentials(Discovery::Credentials creds) {
         audio_->stop();
         spirc_playing_ = false;
         if (!reconnecting_.load() && spirc_) {
-            if (spirc_->saw_device_switch()) {
+            if (!ever_established_.load()) {
+                // We never had a successful session — saved creds were invalid or
+                // the AP was unreachable.  Show waiting screen and fall back to QR.
+                WHBLogPrint("player: initial auth failed — falling back to QR");
+                state_.store(State::WaitingForUser);
+                display_.set_waiting();
+                start_qrauth_thread();
+            } else if (spirc_->saw_device_switch()) {
                 // Another device took over before the AP dropped — go inactive so
                 // the phone stops routing play commands to our dead session.
                 WHBLogPrint("player: device switch detected — going inactive");
@@ -363,6 +388,10 @@ void Player::on_credentials(Discovery::Credentials creds) {
         WHBLogPrint("player: AP connect failed");
         state_.store(State::WaitingForUser);
         display_.set_waiting();
+        if (!ever_established_.load()) {
+            WHBLogPrint("player: initial AP connect failed — starting QR");
+            start_qrauth_thread();
+        }
         return;
     }
 
@@ -421,6 +450,7 @@ void Player::on_credentials(Discovery::Credentials creds) {
         // Dealer connected and SPIRC_HELLO PUT succeeded — Spotify can now route
         // commands to us.  Only clear the "Connecting…" flag; don't reset the
         // display state in case music already started while the PUT was in-flight.
+        ever_established_.store(true);
         display_.set_ready();
     };
 
@@ -432,6 +462,41 @@ void Player::on_credentials(Discovery::Credentials creds) {
     const std::string &canon = ap_->canonical_username();
     zeroconf_.set_active_user(canon);
     WHBLogPrintf("player: connected as '%s'", canon.c_str());
+}
+
+// ── QR auth thread ────────────────────────────────────────────────────────────
+
+void Player::start_qrauth_thread() {
+    if (qrauth_thread_.joinable()) return;   // already running
+    qrauth_thread_ = std::thread([this]() {
+        OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU0);
+        bool qr_shown = false;
+        Connect::device_auth(
+            [this, &qr_shown](std::string code, std::vector<uint8_t> qr_png) {
+                qr_shown = true;
+                display_.set_login(code, qr_png);
+            },
+            [this](std::string token) {
+                Discovery::Credentials creds;
+                creds.username  = "";
+                creds.device_id = zeroconf_.device_id();
+                creds.auth_type = 0x03;  // AUTHENTICATION_SPOTIFY_TOKEN
+                creds.auth_data.assign(token.begin(), token.end());
+                if (connect_thread_.joinable()) connect_thread_.detach();
+                connect_thread_ = std::thread([this, creds = std::move(creds)]() mutable {
+                    OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU0);
+                    on_credentials(std::move(creds));
+                });
+            },
+            [this, &qr_shown](std::string msg) {
+                if (qr_shown && state_.load() == State::WaitingForUser)
+                    display_.set_error(msg);
+                else
+                    WHBLogPrintf("qrauth: silent error: %s", msg.c_str());
+            },
+            [] { return WHBProcIsRunning(); }
+        );
+    });
 }
 
 // ── Spirc callbacks ───────────────────────────────────────────────────────────

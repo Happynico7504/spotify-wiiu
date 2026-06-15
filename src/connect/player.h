@@ -72,6 +72,9 @@ private:
     // Show a stamp pack picker overlay; returns false if user cancelled.
     bool show_stamp_pack_picker();
 
+    // Launch QR auth thread if not already running.
+    void start_qrauth_thread();
+
     enum class State { WaitingForUser, Connecting, Ready, Playing };
     std::atomic<State>    state_{State::WaitingForUser};
     std::atomic<uint32_t> ap_gen_{0};  // incremented each time a new AP is created
@@ -122,6 +125,9 @@ private:
     std::atomic<bool>        reconnecting_{false};
     // Last successful credentials — used for auto-reconnect on plain AP drops.
     Discovery::Credentials   cached_creds_;
+    // True once on_ready fires at least once — distinguishes initial auth failure
+    // (bad saved creds) from a live session dropping.
+    std::atomic<bool>        ever_established_{false};
 };
 
 } // namespace Connect
