@@ -38,6 +38,9 @@ public:
     void set_connecting();   // "Connecting…" — AP connected, dealer not ready yet
     void set_ready();        // clears "Connecting…" flag without touching playing state
     void set_error(const std::string &msg);  // show error on the waiting screen
+    // Show QR login screen; user_code displayed alongside the QR image.
+    // Pass empty qr_png to show only the code (while PNG is still fetching).
+    void set_login(const std::string &user_code, const std::vector<uint8_t> &qr_png);
     void set_track(const std::string &title, const std::string &artist,
                    const std::string &album_art_url, bool is_explicit = false);
     void set_progress(int position_ms, int duration_ms, bool playing);
@@ -74,6 +77,7 @@ private:
     // ── rendering ────────────────────────────────────────────────────────────
     void render_to(SDL_Renderer *r, int w, int h);
     void render_waiting(SDL_Renderer *r, int w, int h, bool connecting = false);
+    void render_login(SDL_Renderer *r, int w, int h);
     void render_playing(SDL_Renderer *r, int w, int h);
     void render_controls(SDL_Renderer *r, int w, int h);
     void render_olv_card(SDL_Renderer *r, int w, int h);
@@ -130,8 +134,12 @@ private:
     std::mutex  mu_;
     bool        waiting_     = true;
     bool        connecting_  = false;  // true between AP connect and SPIRC_HELLO success
+    bool        login_       = false;  // true while QR auth screen is showing
+    std::string login_code_;           // user code ("ABC-DEF") displayed with QR
     std::string error_msg_;              // non-empty → show error on waiting screen
     std::string snap_error_;             // render-thread copy, updated each frame under mu_
+    std::string snap_login_code_;
+    bool        snap_login_  = false;
     std::string title_;
     std::string artist_;
     bool        explicit_   = false;
@@ -166,6 +174,13 @@ private:
     std::thread           spec_thread_;
     std::atomic<bool>     spec_stop_{false};
     void spec_worker();                      // defined in display.cpp
+
+    // ── QR code texture (login screen) ──────────────────────────────────────
+    SDL_Texture         *qr_tex_          = nullptr;
+    std::vector<uint8_t> qr_pending_data_;
+    bool                 qr_pending_      = false;
+    CachedLabel          lc_login_code_;   // "ABCD-EFGH" label on login screen
+    CachedLabel          lc_login_hint_;   // "Scan with Spotify" hint
 
     // ── album art ────────────────────────────────────────────────────────────
     SDL_Texture *art_tex_   = nullptr;

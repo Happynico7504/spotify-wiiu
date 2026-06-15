@@ -2,6 +2,7 @@
 #include "ap.h"
 #include "spirc.h"
 #include "audio.h"
+#include "qrauth.h"
 #include "../olv/olv.h"
 
 #include <cstdio>
@@ -137,6 +138,35 @@ void Player::run() {
         display_.set_error(std::move(msg));
     });
 
+    // QR auth runs in parallel with Zeroconf — whichever delivers credentials first wins.
+    qrauth_thread_ = std::thread([this]() {
+        OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU0);
+        Connect::device_auth(
+            [this](std::string code, std::vector<uint8_t> qr_png) {
+                display_.set_login(code, qr_png);
+            },
+            [this](std::string token) {
+                // Token received — build credentials and connect like Zeroconf would.
+                Discovery::Credentials creds;
+                creds.username  = "";
+                creds.device_id = zeroconf_.device_id();
+                creds.auth_type = 0x03;  // AUTHENTICATION_SPOTIFY_TOKEN
+                creds.auth_data.assign(token.begin(), token.end());
+                if (connect_thread_.joinable()) connect_thread_.detach();
+                connect_thread_ = std::thread([this, creds = std::move(creds)]() mutable {
+                    OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU0);
+                    on_credentials(std::move(creds));
+                });
+            },
+            [this](std::string msg) {
+                // Only show QR error if we haven't connected via another path yet.
+                if (state_.load() == State::WaitingForUser)
+                    display_.set_error(msg);
+            },
+            [] { return WHBProcIsRunning(); }
+        );
+    });
+
     WHBLogPrint("player: waiting for Spotify app...");
 
 
@@ -253,6 +283,7 @@ void Player::run() {
     // connect thread, causing it to exit quickly.
     if (ap_) ap_->disconnect();
     if (connect_thread_.joinable()) connect_thread_.join();
+    if (qrauth_thread_.joinable())  qrauth_thread_.join();
     zeroconf_.stop();
     if (spirc_) { spirc_->stop(); spirc_.reset(); }
     audio_->shutdown();

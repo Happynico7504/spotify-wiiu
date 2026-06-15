@@ -118,8 +118,10 @@ void Display::shutdown() {
     lc_shuf_.free();  lc_rep_.free();   lc_xtal_.free();  lc_bhint_.free();
     lc_wait_[0].free(); lc_wait_[1].free(); lc_wait_[2].free();
     lc_olv_header_.free(); lc_olv_body_.free();
+    lc_login_code_.free(); lc_login_hint_.free();
     if (bg_tex_)       { SDL_DestroyTexture(bg_tex_);       bg_tex_       = nullptr; }
     if (art_tex_)      { SDL_DestroyTexture(art_tex_);      art_tex_      = nullptr; }
+    if (qr_tex_)       { SDL_DestroyTexture(qr_tex_);       qr_tex_       = nullptr; }
     if (olv_memo_tex_) { SDL_DestroyTexture(olv_memo_tex_); olv_memo_tex_ = nullptr; }
     if (font_sm_)    TTF_CloseFont(font_sm_);
     if (font_md_)    TTF_CloseFont(font_md_);
@@ -139,9 +141,24 @@ void Display::set_waiting() {
     std::lock_guard<std::mutex> lk(mu_);
     waiting_ = true;
     connecting_ = false;
+    login_ = false;
+    login_code_.clear();
     error_msg_.clear();
     title_ = artist_ = art_url_ = "";
     pos_ms_ = dur_ms_ = 0; playing_ = false;
+}
+
+void Display::set_login(const std::string &user_code, const std::vector<uint8_t> &qr_png) {
+    std::lock_guard<std::mutex> lk(mu_);
+    waiting_ = true;
+    connecting_ = false;
+    login_ = true;
+    login_code_ = user_code;
+    error_msg_.clear();
+    if (!qr_png.empty()) {
+        qr_pending_data_ = qr_png;
+        qr_pending_ = true;
+    }
 }
 
 void Display::set_connecting() {
@@ -395,11 +412,33 @@ void Display::render_to(SDL_Renderer *r, int w, int h) {
     bool snap_waiting, snap_connecting, snap_controls, snap_olv;
     {
         std::lock_guard<std::mutex> lk(mu_);
-        snap_waiting   = waiting_;
+        snap_waiting    = waiting_;
         snap_connecting = connecting_;
-        snap_controls  = controls_;
-        snap_olv       = olv_visible_;
-        snap_error_    = error_msg_;
+        snap_controls   = controls_;
+        snap_olv        = olv_visible_;
+        snap_error_     = error_msg_;
+        snap_login_     = login_;
+        snap_login_code_= login_code_;
+
+        // Upload pending QR PNG to texture on the main (render) thread.
+        if (qr_pending_ && !qr_pending_data_.empty()) {
+            if (qr_tex_) { SDL_DestroyTexture(qr_tex_); qr_tex_ = nullptr; }
+            int iw, ih, ch;
+            unsigned char *px = stbi_load_from_memory(
+                qr_pending_data_.data(), (int)qr_pending_data_.size(),
+                &iw, &ih, &ch, 4);
+            if (px) {
+                SDL_Surface *surf = SDL_CreateRGBSurfaceWithFormatFrom(
+                    px, iw, ih, 32, iw * 4, SDL_PIXELFORMAT_RGBA32);
+                if (surf) {
+                    qr_tex_ = SDL_CreateTextureFromSurface(r, surf);
+                    SDL_FreeSurface(surf);
+                }
+                stbi_image_free(px);
+            }
+            qr_pending_data_.clear();
+            qr_pending_ = false;
+        }
     }
 
     if (bg_tex_) {
@@ -409,9 +448,10 @@ void Display::render_to(SDL_Renderer *r, int w, int h) {
         SDL_RenderClear(r);
     }
 
-    if      (snap_controls) render_controls(r, w, h);
-    else if (snap_waiting)  render_waiting(r, w, h, snap_connecting);
-    else                    render_playing(r, w, h);
+    if      (snap_controls)              render_controls(r, w, h);
+    else if (snap_waiting && snap_login_) render_login(r, w, h);
+    else if (snap_waiting)               render_waiting(r, w, h, snap_connecting);
+    else                                 render_playing(r, w, h);
 
     // OLV card overlays the bottom strip when visible (independent of controls/waiting)
     if (snap_olv && !snap_controls) render_olv_card(r, w, h);
@@ -439,6 +479,35 @@ void Display::render_waiting(SDL_Renderer *r, int w, int h, bool connecting) {
     draw_label(r, lc_wait_[0], 0, h / 2 - 22, w / 2);
     draw_label(r, lc_wait_[1], 0, h / 2 + 10, w / 2);
     draw_label(r, lc_wait_[2], 0, h / 2 + 34, w / 2);
+}
+
+void Display::render_login(SDL_Renderer *r, int w, int h) {
+    // QR code centred slightly left; user code and hint to its right.
+    float s = w / 1280.0f;
+    int qr_size = (int)(240 * s);
+    int qr_x    = (int)(w / 2 - qr_size - (int)(20 * s));
+    int qr_y    = (int)(h / 2 - qr_size / 2);
+
+    if (qr_tex_) {
+        SDL_Rect dst = {qr_x, qr_y, qr_size, qr_size};
+        SDL_RenderCopy(r, qr_tex_, nullptr, &dst);
+    } else {
+        // Placeholder box while PNG is loading.
+        SDL_SetRenderDrawColor(r, 50, 50, 50, 255);
+        SDL_Rect box = {qr_x, qr_y, qr_size, qr_size};
+        SDL_RenderFillRect(r, &box);
+    }
+
+    int tx = qr_x + qr_size + (int)(24 * s);
+    int ty = qr_y + (int)(20 * s);
+
+    update_label(lc_login_code_, r, font_lg_,
+                 snap_login_code_.c_str(), Theme::TEXT_DIM);
+    update_label(lc_login_hint_, r, font_md_,
+                 "Scan with Spotify to log in", Theme::TEXT_HINT);
+
+    draw_label(r, lc_login_code_, tx, ty);
+    draw_label(r, lc_login_hint_, tx, ty + lc_login_code_.h + (int)(10 * s));
 }
 
 void Display::render_controls(SDL_Renderer *r, int w, int h) {
