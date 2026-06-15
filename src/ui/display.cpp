@@ -116,7 +116,7 @@ void Display::shutdown() {
     lc_title_.free(); lc_artist_.free();
     lc_pos_.free();   lc_dur_.free();   lc_vol_.free();
     lc_shuf_.free();  lc_rep_.free();   lc_xtal_.free();  lc_bhint_.free();
-    lc_wait_[0].free(); lc_wait_[1].free();
+    lc_wait_[0].free(); lc_wait_[1].free(); lc_wait_[2].free();
     lc_olv_header_.free(); lc_olv_body_.free();
     if (bg_tex_)       { SDL_DestroyTexture(bg_tex_);       bg_tex_       = nullptr; }
     if (art_tex_)      { SDL_DestroyTexture(art_tex_);      art_tex_      = nullptr; }
@@ -432,10 +432,13 @@ void Display::render_waiting(SDL_Renderer *r, int w, int h, bool connecting) {
         update_label(lc_wait_[0], r, font_lg_,
                      "Waiting for Spotify\xe2\x80\xa6", Theme::TEXT_DIM);
         update_label(lc_wait_[1], r, font_md_,
-                     "Open Spotify and select this device", Theme::TEXT_HINT);
+                     "Open Spotify and select this device,", Theme::TEXT_HINT);
+        update_label(lc_wait_[2], r, font_md_,
+                     "then play a song to start", Theme::TEXT_HINT);
     }
-    draw_label(r, lc_wait_[0], 0, h / 2 - 14, w / 2);
-    draw_label(r, lc_wait_[1], 0, h / 2 + 16, w / 2);
+    draw_label(r, lc_wait_[0], 0, h / 2 - 22, w / 2);
+    draw_label(r, lc_wait_[1], 0, h / 2 + 10, w / 2);
+    draw_label(r, lc_wait_[2], 0, h / 2 + 34, w / 2);
 }
 
 void Display::render_controls(SDL_Renderer *r, int w, int h) {

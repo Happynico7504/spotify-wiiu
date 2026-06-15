@@ -117,6 +117,7 @@ public:
     // the last reconnect.  Player checks this to decide inactive vs auto-reconnect.
     bool saw_device_switch() const { return saw_device_switch_.load(); }
 
+
     // Re-play the current track from the beginning without advancing the index.
     // Used by Player when repeat is on and a track finishes.
     void replay_current();
