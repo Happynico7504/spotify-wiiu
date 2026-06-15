@@ -83,9 +83,25 @@ void Connect::device_auth(
     std::string resp = vec_to_str(resp_bytes);
     WHBLogPrintf("qrauth: device/authorize resp len=%zu", resp.size());
 
+    // Log safe ASCII portion of response for diagnosis.
+    { std::string dbg = resp; for (char &c : dbg) if ((unsigned char)c < 32) c = '?';
+      WHBLogPrintf("qrauth: resp: %.250s", dbg.c_str()); }
+
     cJSON *root = cJSON_Parse(resp.c_str());
     if (!root) {
         on_error("Spotify login failed (network error)");
+        return;
+    }
+
+    // Surface Spotify error if present.
+    const char *err_val = cJSON_GetStringValue(cJSON_GetObjectItem(root, "error"));
+    const char *err_desc = cJSON_GetStringValue(cJSON_GetObjectItem(root, "error_description"));
+    if (err_val) {
+        WHBLogPrintf("qrauth: Spotify error: %s — %s", err_val, err_desc ? err_desc : "");
+        std::string msg = std::string("Spotify: ") + err_val;
+        if (err_desc) msg += std::string(" (") + err_desc + ")";
+        cJSON_Delete(root);
+        on_error(msg);
         return;
     }
 

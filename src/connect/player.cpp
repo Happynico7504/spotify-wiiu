@@ -141,12 +141,13 @@ void Player::run() {
     // QR auth runs in parallel with Zeroconf — whichever delivers credentials first wins.
     qrauth_thread_ = std::thread([this]() {
         OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU0);
+        bool qr_shown = false;
         Connect::device_auth(
-            [this](std::string code, std::vector<uint8_t> qr_png) {
+            [this, &qr_shown](std::string code, std::vector<uint8_t> qr_png) {
+                qr_shown = true;
                 display_.set_login(code, qr_png);
             },
             [this](std::string token) {
-                // Token received — build credentials and connect like Zeroconf would.
                 Discovery::Credentials creds;
                 creds.username  = "";
                 creds.device_id = zeroconf_.device_id();
@@ -158,10 +159,14 @@ void Player::run() {
                     on_credentials(std::move(creds));
                 });
             },
-            [this](std::string msg) {
-                // Only show QR error if we haven't connected via another path yet.
-                if (state_.load() == State::WaitingForUser)
+            [this, &qr_shown](std::string msg) {
+                // Only surface errors that happen after the QR was shown —
+                // a step-1 failure (client not authorised for device flow, network
+                // error, etc.) should fall through silently so Zeroconf still works.
+                if (qr_shown && state_.load() == State::WaitingForUser)
                     display_.set_error(msg);
+                else
+                    WHBLogPrintf("qrauth: silent error: %s", msg.c_str());
             },
             [] { return WHBProcIsRunning(); }
         );
