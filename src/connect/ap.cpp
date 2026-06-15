@@ -819,22 +819,17 @@ bool AP::do_login(const Discovery::Credentials &creds) {
             WHBLogPrintf("ap: reusable creds type=%u len=%zu", reusable_type, reusable_data.size());
             // Store in memory for use by login5 token acquisition in this session.
             reusable_creds_ = reusable_data;
-            // Only write to SD card if no saved credentials exist yet (avoids
-            // overwriting the zeroconf blob credentials with rotated session credentials
-            // which break the next launch).
-            FILE *f2 = fopen("/vol/external01/spotify_saved_creds.bin", "rb");
-            if (!f2) {
-                f2 = fopen("/vol/external01/spotify_saved_creds.bin", "wb");
-                if (f2) {
-                    uint8_t tb = (uint8_t)reusable_type;
-                    fwrite(&tb, 1, 1, f2);
-                    fwrite(reusable_data.data(), 1, reusable_data.size(), f2);
-                    fclose(f2);
-                    WHBLogPrint("ap: saved creds written to SD card");
-                }
-            } else {
+            // Always write to SD card — APWelcome credentials are long-lived stored
+            // credentials regardless of how we authenticated (QR token, Zeroconf,
+            // or prior saved creds).  Overwriting keeps creds fresh and lets a
+            // QR login act as a one-shot setup for future launches.
+            FILE *f2 = fopen("/vol/external01/spotify_saved_creds.bin", "wb");
+            if (f2) {
+                uint8_t tb = (uint8_t)reusable_type;
+                fwrite(&tb, 1, 1, f2);
+                fwrite(reusable_data.data(), 1, reusable_data.size(), f2);
                 fclose(f2);
-                WHBLogPrint("ap: creds already on SD card, not overwriting");
+                WHBLogPrint("ap: saved creds written to SD card");
             }
         }
         return true;
