@@ -117,6 +117,10 @@ public:
     // the last reconnect.  Player checks this to decide inactive vs auto-reconnect.
     bool saw_device_switch() const { return saw_device_switch_.load(); }
 
+    // Allow the next cluster-driven play command through without a dealer command.
+    // Call after start() when reconnecting mid-playback so the track resumes.
+    void allow_cluster_play() { user_initiated_.store(true); }
+
 
     // Re-play the current track from the beginning without advancing the index.
     // Used by Player when repeat is on and a track finishes.
@@ -242,6 +246,9 @@ private:
     // Set when cluster shows a *real* device switch (active=<other_id>).
     // Cleared on reconnect. Player reads this to decide inactive vs auto-reconnect.
     std::atomic<bool> saw_device_switch_{false};
+    // Set on first dealer command; gates cluster-driven on_play so we never
+    // auto-start audio on connect — the user must explicitly play something.
+    std::atomic<bool> user_initiated_{false};
 
     // Dealer WebSocket — provides the connection_id for connect-state
     Dealer            dealer_;

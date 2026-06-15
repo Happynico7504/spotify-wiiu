@@ -373,6 +373,7 @@ void Player::on_credentials(Discovery::Credentials creds) {
                 // Plain network blip or server rotation — reconnect automatically.
                 WHBLogPrint("player: AP dropped (no device switch) — reconnecting");
                 display_.set_connecting();
+                resuming_playback_.store(spirc_playing_);
                 if (connect_thread_.joinable()) connect_thread_.detach();
                 auto creds = cached_creds_;
                 connect_thread_ = std::thread([this, creds = std::move(creds)]() mutable {
@@ -456,6 +457,8 @@ void Player::on_credentials(Discovery::Credentials creds) {
 
     audio_->stop();
     spirc_playing_ = false;
+    if (resuming_playback_.exchange(false))
+        spirc_->allow_cluster_play();
     spirc_->start(std::move(scb));
     display_.set_connecting();   // show "Connecting…" until on_ready fires
     state_.store(State::Ready);

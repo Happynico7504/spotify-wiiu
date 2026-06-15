@@ -126,7 +126,7 @@ private:
     CachedLabel lc_vol_;                      // "Vol N%"
     CachedLabel lc_shuf_,  lc_rep_, lc_xtal_; // SHUF / REP / XTAL (color encodes on/off)
     CachedLabel lc_bhint_;                    // "B: Controls" — static, baked in init
-    CachedLabel lc_wait_[3];                  // waiting-screen lines
+    CachedLabel lc_wait_[2];                  // waiting-screen lines
     CachedLabel lc_olv_header_;               // "Roséverse  @name  :)"
     CachedLabel lc_olv_body_;                 // post body text
 
