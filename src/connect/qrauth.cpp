@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
+#include <chrono>
+#include <thread>
 
 #include <curl/curl.h>
 #include <whb/log.h>
@@ -141,25 +143,28 @@ void Connect::device_auth(
 
     for (int elapsed = 0; is_running() && elapsed < expires_in; elapsed += poll_interval) {
         // Sleep in 1-second increments so is_running() is checked often.
-        for (int i = 0; i < poll_interval && is_running(); ++i) {
-            struct timespec ts = {1, 0};
-            nanosleep(&ts, nullptr);
-        }
+        for (int i = 0; i < poll_interval && is_running(); ++i)
+            std::this_thread::sleep_for(std::chrono::seconds(1));
         if (!is_running()) break;
 
+        WHBLogPrintf("qrauth: polling token (elapsed=%ds)...", elapsed);
         auto tr_bytes = http_post(TOKEN_URL, poll_body.c_str());
         std::string tr_str = vec_to_str(tr_bytes);
+        { std::string dbg = tr_str;
+          for (char &c : dbg) if ((unsigned char)c < 32) c = '?';
+          WHBLogPrintf("qrauth: poll resp: %.200s", dbg.c_str()); }
 
         cJSON *tr = cJSON_Parse(tr_str.c_str());
-        if (!tr) continue;
+        if (!tr) { WHBLogPrint("qrauth: poll JSON parse failed"); continue; }
 
         const char *err = cJSON_GetStringValue(cJSON_GetObjectItem(tr, "error"));
         if (err) {
-            if (strcmp(err, "slow_down") == 0)
+            if (strcmp(err, "slow_down") == 0) {
                 poll_interval += 5;
-            else if (strcmp(err, "authorization_pending") == 0)
-                ; // keep polling
-            else {
+                WHBLogPrintf("qrauth: slow_down — interval now %ds", poll_interval);
+            } else if (strcmp(err, "authorization_pending") == 0) {
+                WHBLogPrint("qrauth: authorization_pending");
+            } else {
                 WHBLogPrintf("qrauth: poll error: %s", err);
                 cJSON_Delete(tr);
                 on_error("Spotify login cancelled");
@@ -177,6 +182,7 @@ void Connect::device_auth(
             on_token(std::move(tok));
             return;
         }
+        WHBLogPrint("qrauth: poll resp had no error and no token — unexpected");
         cJSON_Delete(tr);
     }
 
