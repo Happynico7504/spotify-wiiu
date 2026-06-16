@@ -165,6 +165,7 @@ void Display::set_connecting() {
     std::lock_guard<std::mutex> lk(mu_);
     waiting_ = true;
     connecting_ = true;
+    login_ = false;
     error_msg_.clear();
     title_ = artist_ = art_url_ = "";
     pos_ms_ = dur_ms_ = 0; playing_ = false;
