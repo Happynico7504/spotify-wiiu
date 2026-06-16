@@ -356,12 +356,25 @@ void Player::on_credentials(Discovery::Credentials creds) {
         spirc_playing_ = false;
         if (!reconnecting_.load() && spirc_) {
             if (!ever_established_.load()) {
-                // We never had a successful session — saved creds were invalid or
-                // the AP was unreachable.  Show waiting screen and fall back to QR.
-                WHBLogPrint("player: initial auth failed — falling back to QR");
-                state_.store(State::WaitingForUser);
-                display_.set_waiting();
-                start_qrauth_thread();
+                // We never had a successful session.  If saved creds exist, retry
+                // them (AP may have been transiently unreachable) rather than
+                // immediately showing the QR code.
+                Discovery::Credentials retry;
+                if (try_load_saved_creds(zeroconf_.device_id(), retry)) {
+                    WHBLogPrint("player: initial connect failed — retrying saved creds");
+                    display_.set_connecting();
+                    if (connect_thread_.joinable()) connect_thread_.detach();
+                    connect_thread_ = std::thread([this, retry = std::move(retry)]() mutable {
+                        OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU0);
+                        OSSleepTicks(OSMillisecondsToTicks(2000));
+                        on_credentials(std::move(retry));
+                    });
+                } else {
+                    WHBLogPrint("player: initial auth failed — no saved creds, starting QR");
+                    state_.store(State::WaitingForUser);
+                    display_.set_waiting();
+                    start_qrauth_thread();
+                }
             } else if (spirc_->saw_device_switch()) {
                 // Another device took over before the AP dropped — go inactive so
                 // the phone stops routing play commands to our dead session.
