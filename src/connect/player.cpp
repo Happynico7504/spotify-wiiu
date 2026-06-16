@@ -375,7 +375,16 @@ void Player::on_credentials(Discovery::Credentials creds) {
                 display_.set_connecting();
                 resuming_playback_.store(spirc_playing_);
                 if (connect_thread_.joinable()) connect_thread_.detach();
+                // If we just authenticated with a one-shot OAuth token (auth_type=3),
+                // Spotify closes the connection after issuing stored credentials via
+                // APWelcome.  Prefer the freshly-saved stored creds for the reconnect
+                // so we don't loop through the same one-shot token again.
                 auto creds = cached_creds_;
+                if (creds.auth_type == 0x03) {
+                    Discovery::Credentials saved;
+                    if (try_load_saved_creds(zeroconf_.device_id(), saved))
+                        creds = std::move(saved);
+                }
                 connect_thread_ = std::thread([this, creds = std::move(creds)]() mutable {
                     OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU0);
                     OSSleepTicks(OSMillisecondsToTicks(2000));
