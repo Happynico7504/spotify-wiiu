@@ -382,8 +382,12 @@ void Player::on_credentials(Discovery::Credentials creds) {
                 auto creds = cached_creds_;
                 if (creds.auth_type == 0x03) {
                     Discovery::Credentials saved;
-                    if (try_load_saved_creds(zeroconf_.device_id(), saved))
+                    if (try_load_saved_creds(zeroconf_.device_id(), saved)) {
+                        WHBLogPrintf("player: upgrading OAuth token to stored creds (type=%u)", saved.auth_type);
                         creds = std::move(saved);
+                    } else {
+                        WHBLogPrint("player: no saved creds — retrying with OAuth token");
+                    }
                 }
                 connect_thread_ = std::thread([this, creds = std::move(creds)]() mutable {
                     OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU0);
@@ -466,10 +470,10 @@ void Player::on_credentials(Discovery::Credentials creds) {
 
     audio_->stop();
     spirc_playing_ = false;
+    display_.set_connecting();   // show "Connecting…" until on_ready fires
     if (resuming_playback_.exchange(false))
         spirc_->allow_cluster_play();
     spirc_->start(std::move(scb));
-    display_.set_connecting();   // show "Connecting…" until on_ready fires
     state_.store(State::Ready);
     const std::string &canon = ap_->canonical_username();
     zeroconf_.set_active_user(canon);
@@ -976,6 +980,10 @@ void Player::olv_fetch(uint32_t cid) {
 
     {
         std::lock_guard<std::mutex> lk(olv_mu_);
+        // Discard if the track changed while we were fetching — the next fetch
+        // cycle will pick up the correct key for the new track.
+        std::string live_key = isrc_.empty() ? track_id_ : isrc_;
+        if (live_key != cur_key) { olv_fetching_ = false; return; }
         if (!posts.empty()) {
             // Stable sort by position_ms asc. Server returns posts latest-first, so
             // ties (same timestamp) keep the latest post first — satisfying "prefer
