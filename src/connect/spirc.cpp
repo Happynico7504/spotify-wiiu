@@ -744,6 +744,7 @@ void Spirc::become_inactive() {
     inactive_.store(true);
     saw_inactive_cluster_.store(false);
     saw_device_switch_.store(false);
+    user_initiated_.store(false);
     playing_ = false;
     current_track_uri_.clear();
     started_playing_at_ms_ = 0;
@@ -993,6 +994,13 @@ void Spirc::handle_dealer_message(const std::string &uri,
 
     if (cs.track_uri.empty()) return;
 
+    // Don't auto-start audio from cluster pushes on connect/reconnect.
+    // Wait for the user to explicitly play something via a dealer command.
+    if (!user_initiated_.load()) {
+        WHBLogPrint("spirc: cluster play blocked — waiting for user to start");
+        return;
+    }
+
     // Same track, paused mid-song (started_playing_at_ms_ > 0), cluster says play:
     // treat as resume, not reload.  started_playing_at_ms_==0 means the track ended
     // naturally (notify_track_end reset it), so that case still falls through to a
@@ -1134,6 +1142,9 @@ bool Spirc::handle_dealer_request(const std::string & /*message_ident*/,
     }
     const char *ep = ep_j->valuestring;
     WHBLogPrintf("spirc: cmd endpoint='%s'", ep);
+
+    // Any dealer command counts as explicit user intent — unlock cluster auto-play.
+    user_initiated_.store(true);
 
     // AP dropped externally (device switch) — reject most commands to avoid driving
     // put_cs(playing=1) over HTTP and kicking off another activation loop.
