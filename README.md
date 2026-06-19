@@ -8,6 +8,8 @@ An unofficial [Spotify Connect](https://www.spotify.com/connect/) client for the
 ## Features
 
 - **Spotify Connect** — select "Wii U" as your playback device from any Spotify app; control playback from your phone, PC, or directly on the console
+- **QR Login** — scan a QR code on screen with your phone to log in; no computer required, credentials saved automatically for future launches
+- **Auto-reconnect** — recovers silently from network drops; playback resumes automatically
 - **Full playlist context** — skips and auto-advance work across entire playlists and albums, not just the visible window
 - **Shuffle & repeat** — toggle on the console or from any connected Spotify app; state syncs both ways
 - **Album art & track info** — fetched automatically for the current track
@@ -71,6 +73,17 @@ An unofficial [Spotify Connect](https://www.spotify.com/connect/) client for the
 ## Setup
 
 ### 1. Get credentials
+
+#### QR Login — no computer needed
+
+If you already have `spotify-wiiu.wuhb` on your SD card, you can skip the setup tool entirely:
+
+1. Launch **Spotify Wii U** from the Aroma Homebrew Launcher — a QR code appears on screen
+2. Scan it with your phone's camera or Spotify app (**Settings → Devices → Scan to connect**)
+3. Approve the login on your phone
+4. The app connects and saves credentials automatically — future launches skip the QR entirely
+
+> To get just the WUHB, download `spotify-wiiu.wuhb` from the [latest release](../../releases/latest) and copy it to `SD:/wiiu/apps/spotify-wiiu/spotify-wiiu.wuhb`.
 
 #### Easy — one download (recommended)
 
@@ -173,7 +186,7 @@ Once installed, its sweep interval (default: 60 minutes) and enable/disable togg
 1. Insert the SD card and power on the Wii U
 2. Open the **Aroma Homebrew Launcher**
 3. Select **Spotify Wii U**
-4. On any Spotify app, open the device list and select **"Wii U"**
+4. If credentials are on the SD card the app connects automatically; otherwise a QR code appears — scan it to log in (credentials are saved for next time)
 
 ## Troubleshooting / reporting a bug
 
