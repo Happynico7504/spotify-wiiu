@@ -106,6 +106,16 @@
           <p>Browse Miiverse-style posts for the current track via Roséverse (nn_olv).</p>
         </div>
         <div class="card">
+          <div class="card-icon">📱</div>
+          <h3>QR Login</h3>
+          <p>Scan a QR code on screen with your phone to log in — no computer required. Credentials are saved automatically so future launches connect instantly.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🔄</div>
+          <h3>Auto-Reconnect</h3>
+          <p>Recovers silently from network drops and AP blips. Playback resumes automatically from where it left off.</p>
+        </div>
+        <div class="card">
           <div class="card-icon">🧹</div>
           <h3>Cache-Sweep Plugin</h3>
           <p>Optional Aroma plugin that cleans up stale audio cache at boot and on a configurable interval — keeps your SD card tidy automatically.</p>
@@ -121,6 +131,7 @@
 
       <div class="tabs">
         <button class="tab active" onclick="switchTab('easy')">Easy (Recommended)</button>
+        <button class="tab" onclick="switchTab('qr')">QR Login (No Computer)</button>
         <button class="tab" onclick="switchTab('manual')">Manual</button>
       </div>
 
@@ -177,7 +188,42 @@ spotify-wiiu-setup.exe</code></pre>
             <div class="step-num">5</div>
             <div class="step-body">
               <h3>Launch</h3>
-              <p>Insert the SD card, power on the Wii U, open the <strong>Aroma Homebrew Launcher</strong>, and select <strong>Spotify Wii U</strong>. Then select <strong>"Wii U"</strong> from any Spotify app's device list.</p>
+              <p>Insert the SD card, power on the Wii U, open the <strong>Aroma Homebrew Launcher</strong>, and select <strong>Spotify Wii U</strong>. If credentials are on the SD card the app connects automatically — otherwise a QR code appears to log in (credentials are saved for next time).</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-qr" class="tab-content">
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <h3>Copy the app to your SD card</h3>
+              <p>Download <code>spotify-wiiu.wuhb</code> from the <a href="https://github.com/Happynico7504/spotify-wiiu/releases/latest" target="_blank">latest release</a> and copy it to:</p>
+              <pre><code>SD:/wiiu/apps/spotify-wiiu/spotify-wiiu.wuhb</code></pre>
+              <p>Skip this step if the app is already installed.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <h3>Launch the app</h3>
+              <p>Insert the SD card, power on the Wii U, open the <strong>Aroma Homebrew Launcher</strong>, and select <strong>Spotify Wii U</strong>. A QR code appears on screen.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <h3>Scan &amp; approve</h3>
+              <p>Scan the QR code with your phone's camera or Spotify app (<strong>Settings → Devices → Scan to connect</strong>), then approve the login on your phone.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <h3>Done — credentials saved automatically</h3>
+              <p>The app connects and writes credentials to <code>SD:/spotify_saved_creds.bin</code>. Future launches skip the QR code entirely and connect straight away.</p>
             </div>
           </div>
         </div>
