@@ -108,7 +108,7 @@
         <div class="card">
           <div class="card-icon">📱</div>
           <h3>QR Login</h3>
-          <p>Scan a QR code on screen with your phone to log in — no computer required. Persistence across restarts isn't reliable yet — use the Easy setup tool if you want future launches to skip login entirely.</p>
+          <p>Scan a QR code on screen with your phone to log in — no computer required. This is a session-only login by design and won't carry over to the next launch — use the Easy setup tool for a login that persists.</p>
         </div>
         <div class="card">
           <div class="card-icon">🔄</div>
@@ -222,8 +222,8 @@ spotify-wiiu-setup.exe</code></pre>
           <div class="step">
             <div class="step-num">4</div>
             <div class="step-body">
-              <h3>Done — for now</h3>
-              <p>The app connects and writes credentials to <code>SD:/spotify_saved_creds.bin</code>, but this doesn't reliably survive a restart yet — you may need to re-scan the code next time you launch. If you want future launches to connect automatically without re-scanning, use the <strong>Easy (Recommended)</strong> setup tool instead.</p>
+              <h3>Done — for this session</h3>
+              <p>The app connects and plays right away, but this login is session-only by design and doesn't write anything to the SD card — you'll re-scan the code every time you launch. For a login that persists across restarts, use the <strong>Easy (Recommended)</strong> setup tool instead.</p>
             </div>
           </div>
         </div>
@@ -402,11 +402,14 @@ content/     Bundled assets (font)
         <div class="doc-block">
           <h3>Credential format</h3>
           <p>The binary format read by the homebrew:</p>
-          <pre><code>[1 byte]  auth_type
+          <pre><code>[1 byte]  username_len
+[N bytes] username (UTF-8)
+[1 byte]  auth_type
            0 = user/pass
            1 = stored credentials ← normal
            3 = Spotify token
 [N bytes] raw auth blob (base64-decoded)</code></pre>
+          <p>The username has to travel with the blob — Spotify's AP server rejects a stored-credentials login with an empty username field, even when the blob itself is valid.</p>
           <p>Both the Rust setup tool and <code>tools/make_creds.py</code> handle old and new librespot JSON formats.</p>
         </div>
 
