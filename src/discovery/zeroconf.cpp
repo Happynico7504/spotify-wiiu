@@ -524,30 +524,39 @@ void Zeroconf::handle_client(int fd) {
             creds.username = username;
 
             // Priority 1: saved reusable credentials from a previous APWelcome.
+            // File format: [1 byte username_len][username][1 byte auth_type][auth_data].
+            // We already have the real username from this addUser request, so just
+            // skip past the stored one to reach auth_type + blob.
             {
                 FILE *f = fopen("/vol/external01/spotify_saved_creds.bin", "rb");
                 if (f) {
-                    uint8_t type_byte = 0;
-                    fread(&type_byte, 1, 1, f);
-                    std::vector<uint8_t> blob;
-                    uint8_t buf[512];
-                    size_t n;
-                    while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
-                        blob.insert(blob.end(), buf, buf + n);
-                    fclose(f);
-                    if (!blob.empty()) {
-                        creds.auth_type = type_byte;
-                        creds.auth_data = std::move(blob);
-                        WHBLogPrintf("zc: using saved creds auth_type=%u len=%zu",
-                                     (unsigned)creds.auth_type, creds.auth_data.size());
-                        if (on_creds_) {
-                            auto cb = on_creds_;
-                            std::thread([cb, c = std::move(creds)]() mutable {
-                                cb(std::move(c));
-                            }).detach();
+                    uint8_t uname_len = 0;
+                    if (fread(&uname_len, 1, 1, f) == 1 &&
+                        fseek(f, uname_len, SEEK_CUR) == 0) {
+                        uint8_t type_byte = 0;
+                        if (fread(&type_byte, 1, 1, f) == 1) {
+                            std::vector<uint8_t> blob;
+                            uint8_t buf[512];
+                            size_t n;
+                            while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+                                blob.insert(blob.end(), buf, buf + n);
+                            if (!blob.empty()) {
+                                creds.auth_type = type_byte;
+                                creds.auth_data = std::move(blob);
+                                WHBLogPrintf("zc: using saved creds auth_type=%u len=%zu",
+                                             (unsigned)creds.auth_type, creds.auth_data.size());
+                                fclose(f);
+                                if (on_creds_) {
+                                    auto cb = on_creds_;
+                                    std::thread([cb, c = std::move(creds)]() mutable {
+                                        cb(std::move(c));
+                                    }).detach();
+                                }
+                                return;
+                            }
                         }
-                        return;
                     }
+                    fclose(f);
                 }
             }
 

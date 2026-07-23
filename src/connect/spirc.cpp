@@ -946,6 +946,16 @@ void Spirc::handle_dealer_message(const std::string &uri,
     // active_device_id empty = no device is currently active.
     // active_device_id != ours = another device took over.
     if (cs.active_device_id != device_id_) {
+        // "helo" is our own bootstrap registration id (PUT /devices/helo in
+        // put_connect_state_sync), not a real competing device. The cluster can
+        // echo it back as active while our real device_id's activation is still
+        // in flight — treat it the same as the active='' stale-echo case below
+        // instead of tripping become_inactive() and thrashing.
+        if (cs.active_device_id == "helo") {
+            WHBLogPrint("spirc: cluster active='helo' (our own bootstrap id) — ignoring");
+            return;
+        }
+
         WHBLogPrintf("spirc: became inactive (active='%.40s')",
                      cs.active_device_id.c_str());
 
@@ -1503,6 +1513,13 @@ void Spirc::send_notify(bool playing, int pos_ms, int vol_pct) {
 }
 
 void Spirc::notify(bool playing, int pos_ms, int vol_pct) {
+    // Called every ~1s from the main thread while the player believes it's
+    // playing. become_inactive() (device switch / AP drop, run from the AP's
+    // own callback thread) can flip inactive_/playing_ concurrently — without
+    // this guard a notify() already in flight computes playing_changed=true
+    // against the just-cleared state and re-sends over an AP socket that's
+    // already gone, producing a spurious 0xB2 send failure right at teardown.
+    if (inactive_.load()) return;
     bool playing_changed = (playing != playing_);
     bool vol_changed     = (vol_pct  != vol_pct_);
     if (playing_changed) local_pause_pending_.store(!playing);

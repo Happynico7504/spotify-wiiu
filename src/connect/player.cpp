@@ -25,7 +25,7 @@ namespace Connect {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-static std::string make_device_id() {
+static std::string gen_random_device_id() {
     auto *entropy  = new mbedtls_entropy_context;
     auto *ctr_drbg = new mbedtls_ctr_drbg_context;
     mbedtls_entropy_init(entropy);
@@ -44,11 +44,55 @@ static std::string make_device_id() {
     return s;
 }
 
+// device_id must stay stable across launches: Spotify's connect-state cluster
+// keys device activation by this id, and a fresh random id every launch (the
+// old behavior) leaves the previous launch's id registered as a "ghost" device
+// server-side with no way to deactivate it (no logout call exists), which then
+// fights the new session for the active slot on relaunch/crash-restart.
+static std::string make_device_id() {
+    const char *sd = WHBGetSdCardMountPath();
+    if (sd) {
+        char path[256];
+        snprintf(path, sizeof(path), "%s/spotify_device_id.txt", sd);
+        if (FILE *f = fopen(path, "rb")) {
+            char buf[64] = {0};
+            size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+            fclose(f);
+            std::string id(buf, n);
+            while (!id.empty() && (id.back() == '\n' || id.back() == '\r' || id.back() == ' '))
+                id.pop_back();
+            bool valid = id.size() == 40 &&
+                         id.find_first_not_of("0123456789abcdef") == std::string::npos;
+            if (valid) return id;
+            WHBLogPrint("player: spotify_device_id.txt invalid — regenerating");
+        }
+    }
+
+    std::string id = gen_random_device_id();
+    if (sd) {
+        char path[256];
+        snprintf(path, sizeof(path), "%s/spotify_device_id.txt", sd);
+        if (FILE *f = fopen(path, "wb")) {
+            fwrite(id.data(), 1, id.size(), f);
+            fclose(f);
+        }
+    }
+    return id;
+}
+
 
 // ── Saved credentials ─────────────────────────────────────────────────────────
 
 // Reads spotify_saved_creds.bin from the SD card root.
-// Format: [1 byte auth_type][raw auth blob].
+// Format: [1 byte username_len][username][1 byte auth_type][raw auth blob].
+//
+// The username must be sent alongside a STORED_SPOTIFY_CREDENTIALS blob in the
+// AP Login packet (ap.cpp's do_login) — Spotify's AP server rejects the login
+// with a closed connection if it's empty, even though the blob itself is valid.
+// Earlier versions of this file omitted the username entirely, which is why a
+// direct saved-creds login could fail here while the same blob, supplied via
+// the Zeroconf loginId flow (which gets the real username from the phone's own
+// request), succeeded.
 static bool try_load_saved_creds(const std::string &device_id,
                                   Discovery::Credentials &out) {
     const char *sd = WHBGetSdCardMountPath();
@@ -70,12 +114,20 @@ static bool try_load_saved_creds(const std::string &device_id,
     if ((long)fread(data.data(), 1, (size_t)size, f) != size) { fclose(f); return false; }
     fclose(f);
 
-    out.username  = "";
+    size_t uname_len = data[0];
+    if (1 + uname_len + 1 > data.size()) {
+        WHBLogPrint("player: spotify_saved_creds.bin truncated — run the setup tool again");
+        return false;
+    }
+
+    out.username.assign(reinterpret_cast<const char *>(data.data() + 1), uname_len);
     out.device_id = device_id;
-    out.auth_type = data[0];
-    out.auth_data.assign(data.begin() + 1, data.end());
-    WHBLogPrintf("player: loaded saved creds (auth_type=%u, blob=%ld bytes)",
-                 out.auth_type, size - 1);
+    size_t off = 1 + uname_len;
+    out.auth_type = data[off];
+    out.auth_data.assign(data.begin() + off + 1, data.end());
+
+    WHBLogPrintf("player: loaded saved creds (user='%s', auth_type=%u, blob=%zu bytes)",
+                 out.username.c_str(), out.auth_type, out.auth_data.size());
     return true;
 }
 
@@ -357,20 +409,29 @@ void Player::on_credentials(Discovery::Credentials creds) {
         if (!reconnecting_.load() && spirc_) {
             if (!ever_established_.load()) {
                 // We never had a successful session.  If saved creds exist, retry
-                // them (AP may have been transiently unreachable) rather than
-                // immediately showing the QR code.
+                // them a few times (AP may have been transiently unreachable)
+                // rather than immediately showing the QR code.
                 Discovery::Credentials retry;
-                if (try_load_saved_creds(zeroconf_.device_id(), retry)) {
+                if (saved_creds_retries_.load() < kMaxSavedCredsRetries &&
+                    try_load_saved_creds(zeroconf_.device_id(), retry)) {
+                    saved_creds_retries_.fetch_add(1);
                     WHBLogPrint("player: initial connect failed — retrying saved creds");
                     display_.set_connecting();
                     if (connect_thread_.joinable()) connect_thread_.detach();
                     connect_thread_ = std::thread([this, retry = std::move(retry)]() mutable {
                         OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU0);
                         OSSleepTicks(OSMillisecondsToTicks(2000));
+                        // A different login (Zeroconf, QR) may have already succeeded
+                        // during the sleep — don't let this stale retry tear down a
+                        // working session and reset the display back to "waiting".
+                        if (ever_established_.load()) {
+                            WHBLogPrint("player: dropping stale saved-creds retry — already established");
+                            return;
+                        }
                         on_credentials(std::move(retry));
                     });
                 } else {
-                    WHBLogPrint("player: initial auth failed — no saved creds, starting QR");
+                    WHBLogPrint("player: initial auth failed — saved creds exhausted or absent, starting QR");
                     state_.store(State::WaitingForUser);
                     display_.set_waiting();
                     start_qrauth_thread();
@@ -416,8 +477,36 @@ void Player::on_credentials(Discovery::Credentials creds) {
         state_.store(State::WaitingForUser);
         display_.set_waiting();
         if (!ever_established_.load()) {
-            WHBLogPrint("player: initial AP connect failed — starting QR");
-            start_qrauth_thread();
+            // Mirror the on_disconnect retry above: a saved-credential login can
+            // fail outright (AP host unreachable, transient rejection) without
+            // ever reaching the on_disconnect callback, since ap_->connect()
+            // returns false synchronously here. Retry saved creds a few times
+            // before forcing the user through QR — otherwise a single flaky
+            // handshake throws away a perfectly good saved session and demands
+            // a re-scan.
+            Discovery::Credentials retry;
+            if (saved_creds_retries_.load() < kMaxSavedCredsRetries &&
+                try_load_saved_creds(zeroconf_.device_id(), retry)) {
+                saved_creds_retries_.fetch_add(1);
+                WHBLogPrint("player: initial connect failed — retrying saved creds");
+                display_.set_connecting();
+                if (connect_thread_.joinable()) connect_thread_.detach();
+                connect_thread_ = std::thread([this, retry = std::move(retry)]() mutable {
+                    OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU0);
+                    OSSleepTicks(OSMillisecondsToTicks(2000));
+                    // A different login (Zeroconf, QR) may have already succeeded
+                    // during the sleep — don't let this stale retry tear down a
+                    // working session and reset the display back to "waiting".
+                    if (ever_established_.load()) {
+                        WHBLogPrint("player: dropping stale saved-creds retry — already established");
+                        return;
+                    }
+                    on_credentials(std::move(retry));
+                });
+            } else {
+                WHBLogPrint("player: initial AP connect failed — saved creds exhausted or absent, starting QR");
+                start_qrauth_thread();
+            }
         }
         return;
     }
@@ -478,6 +567,7 @@ void Player::on_credentials(Discovery::Credentials creds) {
         // commands to us.  Only clear the "Connecting…" flag; don't reset the
         // display state in case music already started while the PUT was in-flight.
         ever_established_.store(true);
+        saved_creds_retries_.store(0);
         display_.set_ready();
     };
 

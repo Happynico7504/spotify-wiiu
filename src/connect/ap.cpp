@@ -805,32 +805,42 @@ bool AP::do_login(const Discovery::Credentials &creds) {
 
         // Load existing credentials from SD card into memory (for login5 in this session),
         // even if we'll also receive fresh credentials from APWelcome below.
+        // File format: [1 byte username_len][username][1 byte auth_type][auth_data].
+        // Only the auth_data blob is needed here — username_ is already set above.
         if (reusable_creds_.empty()) {
             FILE *fc = fopen("/vol/external01/spotify_saved_creds.bin", "rb");
             if (fc) {
-                uint8_t tb; fread(&tb, 1, 1, fc);
-                uint8_t buf[64]; size_t n = fread(buf, 1, sizeof(buf), fc);
+                uint8_t uname_len;
+                if (fread(&uname_len, 1, 1, fc) == 1 &&
+                    fseek(fc, uname_len, SEEK_CUR) == 0) {
+                    uint8_t tb;
+                    if (fread(&tb, 1, 1, fc) == 1) {
+                        long pos = ftell(fc);
+                        fseek(fc, 0, SEEK_END);
+                        long size = ftell(fc) - pos;
+                        if (size > 0) {
+                            fseek(fc, pos, SEEK_SET);
+                            std::vector<uint8_t> buf((size_t)size);
+                            if (fread(buf.data(), 1, buf.size(), fc) == (size_t)size)
+                                reusable_creds_ = std::move(buf);
+                        }
+                    }
+                }
                 fclose(fc);
-                if (n > 0) reusable_creds_.assign(buf, buf + n);
             }
         }
 
         if (!reusable_data.empty()) {
             WHBLogPrintf("ap: reusable creds type=%u len=%zu", reusable_type, reusable_data.size());
-            // Store in memory for use by login5 token acquisition in this session.
+            // In-memory only, for login5 token acquisition within this session.
+            // We never write this back to SD: it's the same reusable_auth_credentials
+            // field that can come back token-shaped rather than a replayable legacy
+            // binary blob depending on how this session authenticated, and blindly
+            // persisting it can silently clobber a good setup-tool-provided
+            // spotify_saved_creds.bin with something that fails on the next launch.
+            // The setup tool (which base64-decodes a real librespot credential) is
+            // the only writer of that file now.
             reusable_creds_ = reusable_data;
-            // Always write to SD card — APWelcome credentials are long-lived stored
-            // credentials regardless of how we authenticated (QR token, Zeroconf,
-            // or prior saved creds).  Overwriting keeps creds fresh and lets a
-            // QR login act as a one-shot setup for future launches.
-            FILE *f2 = fopen("/vol/external01/spotify_saved_creds.bin", "wb");
-            if (f2) {
-                uint8_t tb = (uint8_t)reusable_type;
-                fwrite(&tb, 1, 1, f2);
-                fwrite(reusable_data.data(), 1, reusable_data.size(), f2);
-                fclose(f2);
-                WHBLogPrint("ap: saved creds written to SD card");
-            }
         }
         return true;
     }

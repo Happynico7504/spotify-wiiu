@@ -128,6 +128,11 @@ private:
     // True once on_ready fires at least once — distinguishes initial auth failure
     // (bad saved creds) from a live session dropping.
     std::atomic<bool>        ever_established_{false};
+    // Consecutive saved-credential retry attempts before ever_established_ fires.
+    // Caps the retry loop below so permanently-invalid saved creds fall back to
+    // QR instead of retrying every 2s forever.
+    std::atomic<int>         saved_creds_retries_{0};
+    static constexpr int     kMaxSavedCredsRetries = 3;
     // Set when reconnecting mid-playback so Spirc allows the cluster-driven play
     // command that arrives after the new session is established.
     std::atomic<bool>        resuming_playback_{false};
