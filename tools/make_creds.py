@@ -45,8 +45,14 @@ Step 4 — copy to SD card
 
 File format written
 -------------------
+  [1 byte]  username_len
+  [N bytes] username (UTF-8)
   [1 byte]  auth_type  (matches Spotify's AuthenticationType proto enum)
   [N bytes] raw auth_data blob (base64-decoded from credentials.json)
+
+  The username must travel with the blob: Spotify's AP server rejects a
+  STORED_SPOTIFY_CREDENTIALS login that has an empty username field, even
+  when the blob itself is valid.
 """
 
 import json
@@ -78,7 +84,7 @@ def main():
     with open(src) as f:
         data = json.load(f)
 
-    username = data.get("username", "<unknown>")
+    username = data.get("username", "")
 
     # New librespot format: auth_type (int) + auth_data (base64)
     # Old librespot format: type (string) + credentials (base64)
@@ -96,14 +102,20 @@ def main():
     # librespot uses URL-safe base64 (- and _ instead of + and /)
     blob = base64.urlsafe_b64decode(creds_b64 + "==")
 
+    uname_bytes = username.encode("utf-8")
+    if len(uname_bytes) > 255:
+        print("Error: username too long")
+        sys.exit(1)
+
     out = pathlib.Path("spotify_saved_creds.bin")
     with open(out, "wb") as f:
-        f.write(bytes([auth_type_int]) + blob)
+        f.write(bytes([len(uname_bytes)]) + uname_bytes + bytes([auth_type_int]) + blob)
 
-    print(f"username  : {username}")
+    total = 1 + len(uname_bytes) + 1 + len(blob)
+    print(f"username  : {username or '<unknown>'}")
     print(f"auth_type : {auth_type_int} ({AUTH_TYPE_NAMES.get(auth_type_int, 'unknown')})")
     print(f"blob len  : {len(blob)} bytes")
-    print(f"written   : {out}  ({len(blob) + 1} bytes total)")
+    print(f"written   : {out}  ({total} bytes total)")
     print()
     print("Next step: copy spotify_saved_creds.bin to the root of the Wii U SD card.")
 

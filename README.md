@@ -8,7 +8,7 @@ An unofficial [Spotify Connect](https://www.spotify.com/connect/) client for the
 ## Features
 
 - **Spotify Connect** — select "Wii U" as your playback device from any Spotify app; control playback from your phone, PC, or directly on the console
-- **QR Login** — scan a QR code on screen with your phone to log in; no computer required. Persistence across restarts isn't reliable yet — use the [setup tool](#easy--one-download-recommended) if you want future launches to skip login entirely
+- **QR Login** — scan a QR code on screen with your phone to log in; no computer required. This is a session-only login by design and won't carry over to the next launch — use the [setup tool](#easy--one-download-recommended) for a login that persists
 - **Auto-reconnect** — recovers silently from network drops; playback resumes automatically
 - **Full playlist context** — skips and auto-advance work across entire playlists and albums, not just the visible window
 - **Shuffle & repeat** — toggle on the console or from any connected Spotify app; state syncs both ways
@@ -74,7 +74,7 @@ An unofficial [Spotify Connect](https://www.spotify.com/connect/) client for the
 
 ### 1. Get credentials
 
-#### QR Login — no computer needed
+#### QR Login — no computer needed, session-only
 
 If you already have `spotify-wiiu.wuhb` on your SD card, you can skip the setup tool entirely:
 
@@ -82,7 +82,7 @@ If you already have `spotify-wiiu.wuhb` on your SD card, you can skip the setup 
 2. Scan it with your phone's camera or Spotify app (**Settings → Devices → Scan to connect**)
 3. Approve the login on your phone
 
-> **Note:** QR login doesn't reliably persist across restarts yet — you may need to re-scan the code each time you launch the app. If you want to log in once and have future launches connect automatically, use the [setup tool](#easy--one-download-recommended) below instead.
+> **Note:** QR login is session-only by design — you'll need to re-scan the code every time you launch the app. It doesn't write anything to the SD card, so it can't get out of sync with (or overwrite) credentials from the setup tool. For a login that carries over to future launches, use the [setup tool](#easy--one-download-recommended) below instead.
 
 > To get just the WUHB, download `spotify-wiiu.wuhb` from the [latest release](../../releases/latest) and copy it to `SD:/wiiu/apps/spotify-wiiu/spotify-wiiu.wuhb`.
 
@@ -187,7 +187,7 @@ Once installed, its sweep interval (default: 60 minutes) and enable/disable togg
 1. Insert the SD card and power on the Wii U
 2. Open the **Aroma Homebrew Launcher**
 3. Select **Spotify Wii U**
-4. If credentials are on the SD card the app connects automatically; otherwise a QR code appears — scan it to log in (persistence across restarts isn't reliable yet, see the note above — the setup tool is the recommended way to avoid re-scanning)
+4. If credentials are on the SD card the app connects automatically; otherwise a QR code appears — scan it to log in for this session (see the note above — the setup tool is the way to avoid re-scanning on every launch)
 
 ## Troubleshooting / reporting a bug
 

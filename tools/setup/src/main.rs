@@ -92,10 +92,14 @@ fn find_librespot() -> Option<PathBuf> {
 
 // ── Credential conversion ─────────────────────────────────────────────────────
 
+// File format: [1 byte username_len][username][1 byte auth_type][auth_data].
+// The username must travel with the blob — Spotify's AP server rejects a
+// STORED_SPOTIFY_CREDENTIALS login that has an empty username field, even
+// when the blob itself is valid.
 fn convert(creds_json: &Path, out: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let data: Value = serde_json::from_str(&fs::read_to_string(creds_json)?)?;
 
-    let username = data["username"].as_str().unwrap_or("<unknown>");
+    let username = data["username"].as_str().unwrap_or("");
 
     let (auth_type, b64): (u8, &str) = if let Some(d) = data["auth_data"].as_str() {
         (data["auth_type"].as_u64().unwrap_or(1) as u8, d)
@@ -109,11 +113,17 @@ fn convert(creds_json: &Path, out: &Path) -> Result<(), Box<dyn std::error::Erro
 
     let blob = URL_SAFE_NO_PAD.decode(b64.trim_end_matches('='))?;
 
-    let mut payload = vec![auth_type];
+    let uname_bytes = username.as_bytes();
+    if uname_bytes.len() > 255 {
+        return Err("username too long".into());
+    }
+    let mut payload = vec![uname_bytes.len() as u8];
+    payload.extend_from_slice(uname_bytes);
+    payload.push(auth_type);
     payload.extend_from_slice(&blob);
     fs::write(out, &payload)?;
 
-    ok(&format!("username  : {username}"));
+    ok(&format!("username  : {}", if username.is_empty() { "<unknown>" } else { username }));
     ok(&format!("auth_type : {auth_type} ({})", auth_type_name(auth_type)));
     ok(&format!("blob size : {} bytes", blob.len()));
     Ok(())

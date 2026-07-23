@@ -85,11 +85,17 @@ def find_librespot() -> pathlib.Path | None:
 # ── Credential conversion ─────────────────────────────────────────────────────
 
 def convert_credentials(creds_json: pathlib.Path, out: pathlib.Path) -> str:
-    """Convert librespot credentials.json → binary blob. Returns username."""
+    """Convert librespot credentials.json → binary blob. Returns username.
+
+    File format: [1 byte username_len][username][1 byte auth_type][auth_data].
+    The username must travel with the blob — Spotify's AP server rejects a
+    STORED_SPOTIFY_CREDENTIALS login that has an empty username field, even
+    when the blob itself is valid.
+    """
     with open(creds_json) as f:
         data = json.load(f)
 
-    username = data.get("username", "<unknown>")
+    username = data.get("username", "")
 
     if "auth_data" in data:
         auth_type_int = int(data.get("auth_type", 1))
@@ -102,9 +108,12 @@ def convert_credentials(creds_json: pathlib.Path, out: pathlib.Path) -> str:
         _fail("credentials.json has no 'auth_data' or 'credentials' field")
 
     blob = base64.urlsafe_b64decode(creds_b64 + "==")
-    out.write_bytes(bytes([auth_type_int]) + blob)
+    uname_bytes = username.encode("utf-8")
+    if len(uname_bytes) > 255:
+        _fail("username too long")
+    out.write_bytes(bytes([len(uname_bytes)]) + uname_bytes + bytes([auth_type_int]) + blob)
 
-    _ok(f"username  : {username}")
+    _ok(f"username  : {username or '<unknown>'}")
     _ok(f"auth_type : {auth_type_int} ({AUTH_TYPE_NAMES.get(auth_type_int, 'unknown')})")
     _ok(f"blob size : {len(blob)} bytes")
     return username
